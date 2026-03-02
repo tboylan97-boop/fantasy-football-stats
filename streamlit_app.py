@@ -32,39 +32,33 @@ def load_data():
     return draft_df, history_df
 
 # ==========================================
-# 3. ULTIMATE KFL SUCCESS FORMULA (Positional Curve)
+# 3. ULTIMATE KFL SUCCESS FORMULA (Championship Gated)
 # ==========================================
 def calculate_success_score(row):
     pos = row.get('Position', 'RB')
     pts = row.get('Points', 0)
     ppg = row.get('PPG', 0)
-    gp = row.get('GP', 0)
     voadp = row.get('VOADP', 0)
     pip = row.get('% of PIP', 0)
     rd = row.get('Round', 1)
+    
+    # NEW: Check for Championship Win
+    # Assumes column 'Win Championship?' contains 'Yes', 'YES', or 1
+    won_champ = str(row.get('Win Championship?', '')).strip().upper() in ['YES', '1', '1.0', 'Y']
 
     # A. PRODUCTION SCORE (60% Weight)
-    # We set "Elite Baselines" by position
     if pos == 'QB':
-        baseline = 320 # QBs need more pts to be elite
+        baseline = 320
     elif pos in ['TE', 'K', 'DST', 'DEF']:
-        baseline = 160 # TEs/K/DST need fewer
+        baseline = 160
     else:
-        baseline = 220 # RBs and WRs
-
-    # Dominance = How far they cleared their positional baseline
-    # We use (Points / Baseline) but cap it at 70 points for the "Production" bucket
+        baseline = 220
     prod_raw = (pts / baseline) * 60
     
     # B. DRAFT VALUE / MAINTENANCE (25% Weight)
-    # If drafted in Round 1 or 2, we reward "Staying Elite"
-    # If drafted late, we reward "VOADP Movement"
     if rd <= 2:
-        # Maintenance Reward: If you pick a stud and he IS a stud
-        # We look at PPG. If PPG > 18, they maintained elite status
         value_score = min(25, (ppg / 18) * 25)
     else:
-        # ROI Reward: Value for late picks
         value_score = min(25, (max(0, voadp) / 60) * 25)
 
     # C. CLUTCH FACTOR (15% Weight)
@@ -72,15 +66,24 @@ def calculate_success_score(row):
 
     total = prod_raw + value_score + clutch_score
     
-    # CMC 2019 Protection: If total points > 400, they get a "Legend" boost
+    # Legend Boost for 400+ points
     if pts > 400:
         total += 10
-        
-    return min(100, round(total, 1))
+    
+    # --- THE CHAMPIONSHIP GATE ---
+    if not won_champ:
+        # Cap the score at 97 for non-champions
+        total = min(97, total)
+    else:
+        # Bonus for winning it all
+        if total >= 90:
+            total = min(100, total + 3)
+
+    return round(total, 1)
 
 def get_grade(score):
-    if score >= 95: return "S" # Legendary
-    if score >= 88: return "A+"
+    if score >= 98: return "S"   # RESERVED FOR CHAMPIONS
+    if score >= 90: return "A+"
     if score >= 80: return "A"
     if score >= 70: return "B"
     if score >= 60: return "C"
