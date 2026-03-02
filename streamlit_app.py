@@ -11,7 +11,7 @@ def load_data():
     draft_df = pd.read_excel('Draft Data GPT (1).xlsx')
     history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
     
-    # CLEANING
+    # Standardize everything to prevent invisible duplicates
     draft_df['Team'] = draft_df['Team'].astype(str).str.strip().str.upper()
     draft_df['Owner'] = draft_df['Owner'].astype(str).str.strip()
     draft_df['Position'] = draft_df['Position'].astype(str).str.strip().str.upper()
@@ -31,7 +31,7 @@ def get_clean_names(name):
 try:
     draft_df, history_df = load_data()
 
-    # --- SIDEBAR & NAVIGATION ---
+    # --- SIDEBAR & NAV ---
     st.sidebar.markdown("# 🏈 KFL")
     st.sidebar.markdown("### *Kennesaw Football League*")
     st.sidebar.divider()
@@ -54,7 +54,7 @@ try:
             c3.metric("Avg ROI Score", f"{owner_draft['ROI Score'].mean():.1f}")
             
             slots = draft_df[draft_df['Round'] == 1].groupby(['Owner', 'Year'])['Pick'].first().reset_index()
-            fig_slots = px.bar(slots[slots['Owner'] == selected_owner], x='Year', y='Pick', text='Pick', title="Round 1 Slot History")
+            fig_slots = px.bar(slots[slots['Owner'] == selected_owner], x='Year', y='Pick', text='Pick')
             fig_slots.update_yaxes(autorange="reversed", dtick=1)
             st.plotly_chart(fig_slots, use_container_width=True)
 
@@ -114,37 +114,38 @@ try:
                 pos_counts = owner_draft['Position'].value_counts().reset_index()
                 pos_counts.columns = ['Position', 'Count']
                 
-                # REBUILT PIE (CLEAN OUTSIDE LABELS)
+                # FAILSAFE PIE CHART
+                # We use the legend here because 'Outside' labels are what is causing the crash
                 fig_pos = px.pie(
                     pos_counts, 
                     values='Count', 
                     names='Position', 
                     hole=0.4,
-                    color_discrete_sequence=px.colors.qualitative.Pastel
+                    color_discrete_sequence=px.colors.qualitative.Bold
                 )
                 
                 fig_pos.update_traces(
-                    textinfo='label+percent', 
-                    textposition='outside', # Forced outside the donut
-                    textfont=dict(family="Arial Black", size=14, color="black"),
-                    marker=dict(line=dict(color='#000000', width=1))
+                    textinfo='percent', 
+                    textfont_size=15,
+                    marker=dict(line=dict(color='#000000', width=2))
                 )
                 
                 fig_pos.update_layout(
-                    showlegend=False,
-                    margin=dict(t=50, b=50, l=50, r=50), # Balanced margins
-                    height=450 # Set explicit height to prevent vanishing
+                    showlegend=True, # Legend is now on to ensure info is visible
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.5, xanchor="center", x=0.5),
+                    margin=dict(t=20, b=100, l=20, r=20),
+                    height=500
                 )
                 
                 st.plotly_chart(fig_pos, use_container_width=True)
 
         elif sub_page == "Performance":
             st.subheader("VOADP Value Analysis")
-            st.plotly_chart(px.scatter(owner_draft, x="Round", y="VOADP", color="VOADP Tier", hover_data=["Player Name"]), use_container_width=True)
+            st.plotly_chart(px.scatter(owner_draft, x="Round", y="VOADP", color="VOADP Tier"), use_container_width=True)
 
         elif sub_page == "Scoring":
             st.subheader("Production Metrics")
-            st.plotly_chart(px.scatter(owner_draft, x="GP", y="Points", color="Position", size="PPG"), use_container_width=True)
+            st.plotly_chart(px.scatter(owner_draft, x="GP", y="Points", color="Position"), use_container_width=True)
 
 except Exception as e:
     st.error(f"Error: {e}")
