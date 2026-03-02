@@ -133,7 +133,7 @@ try:
                 pos_counts = owner_draft['Position'].value_counts().reset_index()
                 pos_counts.columns = ['Position', 'count']
                 
-                # REBUILT PIE CHART (CLEANER, BOLDER TEXT)
+                # REBUILT PIE CHART (ULTIMATE BOLD VERSION)
                 fig_pos = px.pie(
                     pos_counts, 
                     values='count', 
@@ -141,17 +141,33 @@ try:
                     hole=0.4,
                     title="Positional Strategy"
                 )
+                
                 fig_pos.update_traces(
                     textinfo='label+percent', 
                     textposition='inside',
                     insidetextorientation='horizontal',
-                    # This section fixes the font and color issues
+                    # This forces EVERY label to follow the same style rules
+                    texttemplate="<b>%{label}</b><br>%{percent}", 
                     textfont=dict(
                         family="Arial Black, Gadget, sans-serif",
                         size=16,
-                        color="white" # Force all text to white
-                    ),
-                    marker=dict(line=dict(color='#000000', width=1.5))
+                        color="white"
+                    )
+                )
+
+                fig_pos.update_layout(
+                    showlegend=False,
+                    # This tells Plotly NOT to change text color based on background
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    uniformtext_minsize=12,
+                    uniformtext_mode='show', # Forces text to show even if tight
+                )
+                
+                # Hard override to fix the Black/White color switching
+                fig_pos.update_traces(insidetextfont_color="white") 
+                
+                st.plotly_chart(fig_pos, use_container_width=True)
                 )
                 
                 # Add a "Shadow" effect to the text to ensure it's readable on any color
