@@ -206,7 +206,7 @@ try:
                 p_counts.columns = ['Position', 'count']
                 st.plotly_chart(px.pie(p_counts, values='count', names='Position', hole=0.4), use_container_width=True)
 
-       # --- PERFORMANCE (The Report Card) ---
+      # --- PERFORMANCE (The Report Card) ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
             
@@ -214,30 +214,21 @@ try:
             with hof:
                 st.success("### ⭐ Draft Hall of Fame")
                 top_picks = owner_draft.sort_values('Success Score', ascending=False).head(5)
-                for _, p in top_picks.iterrows():
-                    # SYNOPSIS LOGIC
-                    champ_text = "🏆 Champion" if p.get('Win Championship?') in ['Yes', 'YES', 1, 1.0, 'Y'] else ""
-                    synopsis = f"{p['Points']:.0f} Pts ({p['PPG']:.1f} PPG) | {p['GP']} Games {champ_text}"
-                    
-                    st.markdown(f"**{p['Player Name']} ({p['Year']})**")
-                    st.caption(f"Grade: **{p['Grade']}** | Score: **{p['Success Score']}**")
-                    st.write(f"*{synopsis}*")
-                    st.divider()
+                # Counter for 1-5 ranking
+                for i, (_, p) in enumerate(top_picks.iterrows(), 1):
+                    champ_icon = "🏆" if str(p.get('Win Championship?')).strip().upper() in ['YES', '1', '1.0', 'Y'] else ""
+                    # Compact string for less vertical space
+                    st.markdown(f"**#{i} {p['Player Name']}** ({p['Year']}) {champ_icon}")
+                    st.caption(f"Grade: **{p['Grade']}** ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG")
             
             with hos:
                 st.error("### 🗑️ Draft Hall of Shame")
-                # Filter out players with 0 GP to find "active" busts
                 real_busts = owner_draft[owner_draft['GP'] > 0].sort_values('Success Score', ascending=True).head(5)
-                for _, p in real_busts.iterrows():
-                    # SYNOPSIS LOGIC
-                    missed = 17 - p['GP'] # Assuming 17 game season
+                for i, (_, p) in enumerate(real_busts.iterrows(), 1):
+                    missed = 16 - p['GP']
                     v_burn = abs(p['VOADP']) if p['VOADP'] < 0 else 0
-                    synopsis = f"Missed {missed:.0f} Games | {p['Points']:.0f} Total Pts | Value Burn: -{v_burn:.0f}"
-                    
-                    st.markdown(f"**{p['Player Name']} ({p['Year']})**")
-                    st.caption(f"Grade: **{p['Grade']}** | Score: **{p['Success Score']}**")
-                    st.write(f"*{synopsis}*")
-                    st.divider()
+                    st.markdown(f"**#{i} {p['Player Name']}** ({p['Year']})")
+                    st.caption(f"Grade: **{p['Grade']}** ({p['Success Score']}) | Missed {missed:.0f} Games | -{v_burn:.0f} Value")
 
             st.divider()
             
