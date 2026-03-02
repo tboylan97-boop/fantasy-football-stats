@@ -32,7 +32,8 @@ def load_data():
     return draft_df, history_df
 
 # 3. ANALYTICS FORMULAS
-def calculate_success_score(row):
+def calculate_success_score(row, draft_df):
+    year = row.get('Year')
     pos = row.get('Position', 'RB')
     pts = row.get('Points', 0)
     ppg = row.get('PPG', 0)
@@ -41,24 +42,40 @@ def calculate_success_score(row):
     rd = row.get('Round', 1)
     won_champ = str(row.get('Win Championship?', '')).strip().upper() in ['YES', '1', '1.0', 'Y']
 
+    # --- BUCKET 1: ABSOLUTE PRODUCTION (30%) ---
     if pos == 'QB': baseline = 330
     elif pos in ['K', 'DST', 'DEF', 'D/ST']: baseline = 195
     elif pos == 'TE': baseline = 175
     else: baseline = 225
-    
-    prod_raw = (pts / baseline) * 60
+    abs_score = (pts / baseline) * 30
+
+    # --- BUCKET 2: YEARLY DOMINANCE (30%) ---
+    # Find the highest score for this position in this specific year
+    yearly_max = draft_df[(draft_df['Year'] == year) & (draft_df['Position'] == pos)]['Points'].max()
+    if yearly_max > 0:
+        rel_score = (pts / yearly_max) * 30
+    else:
+        rel_score = abs_score # Fallback
+
+    # --- BUCKET 3: VALUE / MAINTENANCE (25%) ---
     if rd <= 2: value_score = min(25, (ppg / 19) * 25)
     else: value_score = min(25, (max(0, voadp) / 65) * 25)
 
+    # --- BUCKET 4: CLUTCH (15%) ---
     clutch_score = min(15, (pip / 0.22) * 15)
-    total = prod_raw + value_score + clutch_score
+    
+    total = abs_score + rel_score + value_score + clutch_score
+    
+    # Legend Boost for the truly elite
     if pts > 400: total += 10
     
+    # THE CHAMPIONSHIP GATE
     if not won_champ:
         total = min(99.9, total)
     else:
         if total >= 94: total = 100
         elif total >= 80: total += 3
+
     return round(total, 1)
 
 def get_grade(score):
