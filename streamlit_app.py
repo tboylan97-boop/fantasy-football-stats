@@ -114,19 +114,22 @@ try:
                 pos_counts = owner_draft['Position'].value_counts().reset_index()
                 pos_counts.columns = ['Position', 'Count']
                 
-                # CLEANER PIE: Uses Legend for small slices, Bold Labels for big ones
+                # ULTIMATE POSITION CHART
                 fig_pos = px.pie(pos_counts, values='Count', names='Position', hole=0.5,
-                                 color_discrete_sequence=px.colors.qualitative.Pastel)
+                                 color_discrete_sequence=px.colors.qualitative.Dark24)
                 
                 fig_pos.update_traces(
-                    textinfo='percent', # Just show % inside
-                    textfont=dict(family="Arial Black", size=16, color="white"),
+                    # This template combines the Name and Percentage on the chart
+                    texttemplate="<b>%{label}</b><br>%{percent}",
+                    textposition='inside',
+                    insidetextfont=dict(family="Arial Black", size=16, color="white"),
                     marker=dict(line=dict(color='#000000', width=2))
                 )
                 
                 fig_pos.update_layout(
-                    legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="right", x=1.2),
-                    margin=dict(t=0, b=0, l=0, r=100)
+                    showlegend=False,
+                    uniformtext_minsize=12,
+                    uniformtext_mode='show' # Force text to show even if small
                 )
                 st.plotly_chart(fig_pos, use_container_width=True)
 
