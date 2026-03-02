@@ -26,7 +26,7 @@ def load_data():
     for col in ['Team', 'Owner', 'Position']:
         draft_df[col] = draft_df[col].astype(str).str.strip().str.upper()
 
-    # Numeric formatting
+    # Numeric formatting for analysis
     for col in ['PPG', 'GP', 'VOADP', 'Points', '% of PIP']:
         if col in draft_df.columns:
             draft_df[col] = pd.to_numeric(draft_df[col], errors='coerce').fillna(0)
@@ -37,9 +37,12 @@ def load_data():
 def calculate_success_score(row):
     ppg = max(0, row.get('PPG', 0))
     gp = max(0, row.get('GP', 0))
+    # Target: 15+ PPG and 14+ Games = Elite
     reg_score = min(60, ((ppg * gp) / 210) * 60)
+    # ROI based on VOADP movement
     voadp = max(0, row.get('VOADP', 0))
     roi_score = min(25, (voadp / 50) * 25)
+    # Clutch based on Playoff percentage
     pip = max(0, row.get('% of PIP', 0))
     clutch_score = min(15, (pip / 0.20) * 15)
     return round(reg_score + roi_score + clutch_score, 1)
@@ -67,6 +70,7 @@ try:
     
     # SIDEBAR
     st.sidebar.markdown("# 🏈 KFL")
+    st.sidebar.markdown("### *Kennesaw Football League*")
     st.sidebar.divider()
     main_page = st.sidebar.radio("MAIN MENU", ["Draft Room", "Owner Statistics", "League Records"])
     st.sidebar.divider()
@@ -75,49 +79,56 @@ try:
     owner_draft = draft_df[draft_df['Owner'] == selected_owner].copy()
     owner_history = history_df[history_df['Owner'] == selected_owner]
     
-    # Apply Success Score
+    # Pre-calculate Performance Grades
     owner_draft['Success Score'] = owner_draft.apply(calculate_success_score, axis=1)
     owner_draft['Grade'] = owner_draft['Success Score'].apply(get_grade)
 
     if main_page == "Draft Room":
         sub_page = st.sidebar.radio("SUB-MENU", ["Dashboard", "Archetype", "Performance", "Scoring"])
         
-        # --- DASHBOARD ---
+        # --- SUB-TAB 1: DASHBOARD ---
         if sub_page == "Dashboard":
             st.title(f"📈 {selected_owner}: Dashboard")
             c1, c2, c3 = st.columns(3)
-            c1.metric("Total Picks", len(owner_draft))
+            c1.metric("Total Career Picks", len(owner_draft))
             c2.metric("Draft Years", owner_draft['Year'].nunique())
             c3.metric("Avg Success Score", f"{owner_draft['Success Score'].mean():.1f}")
             
             slots = draft_df[draft_df['Round'] == 1].groupby(['Owner', 'Year'])['Pick'].first().reset_index()
-            fig_slots = px.bar(slots[slots['Owner'] == selected_owner], x='Year', y='Pick', text='Pick', title="Round 1 Draft Slot")
+            fig_slots = px.bar(slots[slots['Owner'] == selected_owner], x='Year', y='Pick', text='Pick', title="Round 1 Draft Slot History")
             fig_slots.update_yaxes(autorange="reversed", dtick=1)
             st.plotly_chart(fig_slots, use_container_width=True)
 
-        # --- ARCHETYPE ---
+        # --- SUB-TAB 2: ARCHETYPE (Identity) ---
         elif sub_page == "Archetype":
-            st.title(f"🧬 {selected_owner}: Archetype")
+            st.title(f"🧬 {selected_owner}: Draft Archetype")
             
-            # Tendencies
+            # --- NAMES & AGE SECTION ---
             st.subheader("Manager Tendencies")
             col_age, col_first, col_last = st.columns(3)
+            
             league_age = draft_df.groupby('Owner')['Age When Drafted'].mean().sort_values()
             age_rank = league_age.index.get_loc(selected_owner) + 1
+            
+            valid_players = owner_draft[~owner_draft['Position'].isin(['DST', 'DEF', 'D/ST', 'DEFENSE'])].copy()
+            valid_players[['First', 'Last']] = valid_players['Player Name'].apply(lambda x: pd.Series(get_clean_names(x)))
+
             with col_age:
                 st.metric("Avg Player Age", f"{owner_draft['Age When Drafted'].mean():.1f}")
                 with st.popover(f"Rank: {age_rank}/{len(league_age)}"):
                     st.table(league_age.reset_index().rename(columns={'index':'Owner','Age When Drafted':'Age'}))
 
-            valid_players = owner_draft[~owner_draft['Position'].isin(['DST', 'DEF', 'D/ST', 'DEFENSE'])].copy()
-            valid_players[['First', 'Last']] = valid_players['Player Name'].apply(lambda x: pd.Series(get_clean_names(x)))
-            
             with col_first:
                 cf = valid_players['First'].mode()[0] if not valid_players['First'].empty else "N/A"
                 st.metric("Common First Name", cf)
+                with st.popover(f"View {cf}s"):
+                    st.dataframe(valid_players[valid_players['First'] == cf][['Year', 'Player Name', 'Position', 'Round']], hide_index=True)
+
             with col_last:
                 cl = valid_players['Last'].mode()[0] if not valid_players['Last'].empty else "N/A"
                 st.metric("Common Last Name", cl)
+                with st.popover(f"View {cl}s"):
+                    st.dataframe(valid_players[valid_players['Last'] == cl][['Year', 'Player Name', 'Position', 'Round']], hide_index=True)
 
             st.divider()
             
@@ -126,6 +137,11 @@ try:
             team_counts = owner_draft['Team'].value_counts().reset_index()
             team_counts.columns = ['Team', 'Picks']
             st.plotly_chart(px.bar(team_counts.sort_values('Picks', ascending=False), x='Team', y='Picks', text='Picks', color='Picks', color_continuous_scale='Blues', height=400), use_container_width=True)
+            
+            active_teams = sorted(owner_draft[owner_draft['Team'] != 'N/A']['Team'].unique())
+            sel_team = st.selectbox("View team history:", active_teams)
+            with st.popover(f"📋 View all {sel_team} Picks"):
+                st.dataframe(owner_draft[owner_draft['Team'] == sel_team][['Year', 'Round', 'Pick', 'Player Name', 'Position']].sort_values('Year', ascending=False), hide_index=True)
 
             st.divider()
 
@@ -148,7 +164,7 @@ try:
                 if 'Birth Month' in valid_players.columns:
                     months_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
                     m_counts = valid_players['Birth Month'].value_counts().reindex(months_order, fill_value=0).reset_index()
-                    m_counts.columns = ['Birth Month', 'count'] # FIXED COLUMN NAMES
+                    m_counts.columns = ['Birth Month', 'count']
                     st.plotly_chart(px.bar(m_counts, x='count', y='Birth Month', orientation='h', color='count', color_continuous_scale='Sunset'), use_container_width=True)
             
             with demo_r:
@@ -160,7 +176,8 @@ try:
 
             st.divider()
 
-            # Repeats & Position Strategy
+            # Repeats & Position
+            st.subheader("Final Archetype Tally")
             col_rep, col_p = st.columns(2)
             with col_rep:
                 st.write("#### Frequent Faces")
@@ -173,7 +190,7 @@ try:
                 p_counts.columns = ['Position', 'count']
                 st.plotly_chart(px.pie(p_counts, values='count', names='Position', hole=0.4), use_container_width=True)
 
-        # --- PERFORMANCE ---
+        # --- SUB-TAB 3: PERFORMANCE (The Grades) ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
             
@@ -224,7 +241,7 @@ try:
                 }
             )
 
-    # PAGE 2: OWNER STATISTICS
+    # --- OWNER STATISTICS ---
     elif main_page == "Owner Statistics":
         st.title(f"📊 {selected_owner}: Career Stats")
         wins = len(owner_history[owner_history['Result'] == 'Win'])
