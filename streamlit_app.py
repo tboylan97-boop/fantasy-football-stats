@@ -9,7 +9,6 @@ st.set_page_config(page_title="KFL Archive", layout="wide")
 @st.cache_data
 def load_data():
     draft_df = pd.read_excel('Draft Data GPT (1).xlsx')
-    # Loading 'Every Game' sheet for Owner Statistics
     history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
     return draft_df, history_df
 
@@ -17,128 +16,105 @@ try:
     draft_df, history_df = load_data()
 
     # ==========================================
-    # SIDEBAR: KFL BRANDING & NAVIGATION
+    # SIDEBAR: KFL BRANDING & MAIN NAV
     # ==========================================
     st.sidebar.markdown("# 🏈 KFL")
     st.sidebar.markdown("### *Kennesaw Football League*")
     st.sidebar.divider()
 
-    # NAVIGATION TABS
-    page = st.sidebar.radio(
-        "NAVIGATION",
+    main_page = st.sidebar.radio(
+        "MAIN MENU",
         ["Draft Room", "Owner Statistics", "League Records"]
     )
 
     st.sidebar.divider()
-
-    # MANAGER SELECTION (Global for all pages)
     all_owners = sorted(draft_df['Owner'].unique())
     selected_owner = st.sidebar.selectbox("Select a Manager", all_owners)
     
-    # Pre-filtering data for the owner
     owner_draft = draft_df[draft_df['Owner'] == selected_owner]
-    owner_history = history_df[history_df['Owner'] == selected_owner]
 
     # ==========================================
-    # PAGE 1: DRAFT ROOM
+    # DRAFT ROOM: SUB-CATEGORY LOGIC
     # ==========================================
-    if page == "Draft Room":
-        st.title(f"🎯 Draft Room: {selected_owner}")
-
-        # LOGIC: DRAFT SLOTS (ROUND 1 ONLY)
-        slots_df = draft_df[draft_df['Round'] == 1].groupby(['Owner', 'Year'])['Pick'].first().reset_index()
-        league_avg_slots = slots_df.groupby('Owner')['Pick'].mean().sort_values()
-        owner_avg_slot = league_avg_slots[selected_owner]
-        pick_rank = league_avg_slots.index.get_loc(selected_owner) + 1
-
-        # League Age Ranking
-        league_age = draft_df.groupby('Owner')['Age When Drafted'].mean().sort_values()
-        age_rank = league_age.index.get_loc(selected_owner) + 1
-
-        # BIG METRICS
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Drafted Assets", len(owner_draft))
-        col2.metric("League Seasons", owner_draft['Year'].nunique())
+    if main_page == "Draft Room":
+        # This only shows up when Draft Room is selected
+        sub_page = st.sidebar.radio(
+            "DRAFT SUB-MENU",
+            ["Dashboard", "Archetype", "Performance", "Scoring"]
+        )
         
-        with col3:
-            st.metric("Avg Draft Pick", f"{owner_avg_slot:.1f}")
-            with st.popover(f"Rank: {pick_rank}/{len(league_avg_slots)}"):
-                rank_table = league_avg_slots.reset_index()
-                rank_table.columns = ['Owner', 'Avg Pick']
-                rank_table.index += 1
-                st.table(rank_table.style.format({'Avg Pick': '{:.1f}'}))
+        st.title(f"🎯 Draft Room: {sub_page}")
+        st.caption(f"Manager: {selected_owner}")
 
-        with col4:
-            st.metric("Avg Player Age", f"{owner_draft['Age When Drafted'].mean():.1f}")
-            with st.popover(f"Rank: {age_rank}/{len(league_age)}"):
-                age_table = league_age.reset_index()
-                age_table.columns = ['Owner', 'Avg Age']
-                age_table.index += 1
-                st.table(age_table.style.format({'Avg Age': '{:.1f}'}))
-
-        st.divider()
-        
-        # VISUALS
-        c1, c2 = st.columns(2)
-        with c1:
-            st.subheader("Historical Draft Slot")
-            fig_slots = px.bar(slots_df[slots_df['Owner'] == selected_owner], x='Year', y='Pick', text='Pick')
+        # --- 1. DASHBOARD ---
+        if sub_page == "Dashboard":
+            st.subheader("At a Glance")
+            # Quick stats we've already built
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Picks", len(owner_draft))
+            c2.metric("Draft Years", owner_draft['Year'].nunique())
+            c3.metric("Avg ROI Score", f"{owner_draft['ROI Score'].mean():.1f}")
+            
+            # Show the Draft Slot History Chart here as a "Main" visual
+            slots_df = draft_df[draft_df['Round'] == 1].groupby(['Owner', 'Year'])['Pick'].first().reset_index()
+            fig_slots = px.bar(slots_df[slots_df['Owner'] == selected_owner], x='Year', y='Pick', text='Pick', title="Historical Draft Slot")
             fig_slots.update_yaxes(autorange="reversed")
             st.plotly_chart(fig_slots, use_container_width=True)
-        
-        with c2:
-            st.subheader("Position Breakdown")
-            pos_counts = owner_draft['Position'].value_counts().reset_index()
-            fig_pos = px.pie(pos_counts, values='count', names='Position', hole=0.4)
-            st.plotly_chart(fig_pos, use_container_width=True)
+
+        # --- 2. ARCHETYPE (Personals) ---
+        elif sub_page == "Archetype":
+            st.subheader("Manager Tendencies & Player Profiles")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.write("#### Positional Bias")
+                pos_counts = owner_draft['Position'].value_counts().reset_index()
+                st.plotly_chart(px.pie(pos_counts, values='count', names='Position', hole=0.4), use_container_width=True)
+            with col_b:
+                st.write("#### NFL Team Reliance")
+                team_counts = owner_draft['Team'].value_counts().head(10).reset_index()
+                st.plotly_chart(px.bar(team_counts, x='count', y='Team', orientation='h'), use_container_width=True)
+            
+            st.divider()
+            st.write("#### Racial/Demographic Breakdown")
+            race_counts = owner_draft['Race'].value_counts().reset_index()
+            st.plotly_chart(px.bar(race_counts, x='Race', y='count', color='Race'), use_container_width=True)
+
+        # --- 3. PERFORMANCE (Value) ---
+        elif sub_page == "Performance":
+            st.subheader("Draft Value & ROI Analysis")
+            st.info("VOADP (Value Over ADP) and ROI Tiers illustrate how much 'profit' was made on each pick.")
+            
+            fig_roi = px.scatter(owner_draft, x="Round", y="VOADP", color="VOADP Tier", 
+                                 size="Points", hover_data=["Player Name", "Year"],
+                                 title="VOADP vs Draft Round")
+            st.plotly_chart(fig_roi, use_container_width=True)
+            
+            st.write("#### ROI Tier Breakdown")
+            roi_counts = owner_draft['ROI Tier'].value_counts().reset_index()
+            st.plotly_chart(px.bar(roi_counts, x='ROI Tier', y='count', color='ROI Tier'), use_container_width=True)
+
+        # --- 4. SCORING (Output) ---
+        elif sub_page == "Scoring":
+            st.subheader("Production & Reliability")
+            sc1, sc2 = st.columns(2)
+            sc1.metric("Avg PPG (Drafted Players)", f"{owner_draft['PPG'].mean():.1f}")
+            sc2.metric("Total Career Games Missed", f"{owner_draft['Games missed'].sum():.0f}")
+
+            st.write("#### Points Scored vs. Games Played")
+            fig_score = px.scatter(owner_draft, x="GP", y="Points", color="Position", 
+                                   hover_data=["Player Name", "Year"], size="PPG")
+            st.plotly_chart(fig_score, use_container_width=True)
 
     # ==========================================
-    # PAGE 2: OWNER STATISTICS
+    # OTHER MAIN PAGES (Placeholder for now)
     # ==========================================
-    elif page == "Owner Statistics":
-        st.title(f"📊 {selected_owner}: Career Performance")
+    elif main_page == "Owner Statistics":
+        st.title(f"📊 {selected_owner}: Career Stats")
+        st.write("This area will focus on W/L records and Head-to-Head data.")
 
-        # Win/Loss Logic
-        wins = len(owner_history[owner_history['Result'] == 'Win'])
-        losses = len(owner_history[owner_history['Result'] == 'Loss'])
-        total_games = wins + losses
-        win_pct = (wins / total_games) * 100 if total_games > 0 else 0
-
-        # PERFORMANCE METRICS
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("All-Time Record", f"{wins}-{losses}")
-        m2.metric("Win Percentage", f"{win_pct:.1f}%")
-        m3.metric("Total Pts For", f"{owner_history['Points'].sum():,.1f}")
-        m4.metric("Avg Pts/Game", f"{owner_history['Points'].mean():.1f}")
-
-        st.divider()
-
-        # RIVALRY SECTION
-        st.subheader("⚔️ Rivalry Breakdown")
-        opponent = st.selectbox("Select Rival", [o for o in all_owners if o != selected_owner])
-        rivalry = owner_history[owner_history['Opponent'] == opponent]
-        
-        r_wins = len(rivalry[rivalry['Result'] == 'Win'])
-        r_losses = len(rivalry[rivalry['Result'] == 'Loss'])
-        
-        st.write(f"### Record vs {opponent}: {r_wins}W - {r_losses}L")
-        st.dataframe(rivalry[['Year', 'Week', 'Points', 'Points Against', 'Result']], use_container_width=True, hide_index=True)
-
-    # ==========================================
-    # PAGE 3: LEAGUE RECORDS
-    # ==========================================
-    elif page == "League Records":
+    elif main_page == "League Records":
         st.title("📜 KFL Hall of Records")
-        
-        # All-time single game high
-        st.subheader("All-Time Single Game Highs")
-        high_scores = history_df.sort_values('Points', ascending=False).head(10)
-        st.dataframe(high_scores[['Year', 'Week', 'Owner', 'Points', 'Opponent']], hide_index=True)
-
-        # Season Champions (using the Win Championship column from draft data)
-        st.subheader("KFL Champions")
-        champs = draft_df[draft_df['Win Championship?'] == 'Yes'][['Year', 'Owner']].drop_duplicates()
-        st.table(champs.sort_values('Year', ascending=False))
+        st.write("This area will focus on all-time highs and champions.")
 
 except Exception as e:
-    st.error(f"Error loading KFL data: {e}")
+    st.error(f"Sync failed: {e}")
