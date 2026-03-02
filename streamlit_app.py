@@ -71,7 +71,7 @@ def calculate_success_score(row, full_data):
     return round(total, 1)
 
 def get_grade(score):
-    if score >= 98: return "S" 
+    if score >= 99: return "S" 
     if score >= 90: return "A+"
     if score >= 85: return "A"
     if score >= 75: return "B"
