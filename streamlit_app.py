@@ -29,23 +29,83 @@ try:
     all_owners = sorted(draft_df['Owner'].unique())
     selected_owner = st.sidebar.selectbox("Select Manager", all_owners)
 
-    # ==========================================
+   # ==========================================
     # PAGE 1: DRAFT ROOM
     # ==========================================
     if page == "Draft Room":
         st.title(f"🎯 Draft Room: {selected_owner}")
-        
-        owner_draft = draft_df[draft_df['Owner'] == selected_owner]
-        
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Avg Draft ROI", f"{owner_draft['ROI Score'].mean():.1f}")
-        m2.metric("Best Pick", owner_draft.sort_values("ROI Score", ascending=False).iloc[0]['Player Name'])
-        m3.metric("Total Pts Drafted", f"{owner_draft['Points'].sum():,.0f}")
 
-        fig = px.scatter(owner_draft, x="Round", y="ROI Score", color="ROI Tier", 
-                         hover_data=["Player Name", "Year"], title="Draft Value over Time")
-        st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(owner_draft[['Year', 'Round', 'Player Name', 'ROI Tier', 'Points']], use_container_width=True)
+        # 1. PRE-CALCULATE LEAGUE WIDE STATS FOR RANKINGS
+        # ----------------------------------------------
+        # Average Age per Owner
+        league_age = df.groupby('Owner')['Age When Drafted'].mean().sort_values()
+        # Average Draft Slot (Their Pick in Round 1)
+        slots = df[df['Round'] == 1].groupby(['Owner', 'Year'])['Pick'].first().reset_index()
+        league_slots = slots.groupby('Owner')['Pick'].mean().sort_values()
+
+        # 2. FILTER DATA FOR SELECTED OWNER
+        # ----------------------------------------------
+        owner_df = df[df['Owner'] == selected_owner]
+        owner_slots = slots[slots['Owner'] == selected_owner]
+
+        # 3. TOP ROW: KEY METRICS
+        # ----------------------------------------------
+        st.subheader("The Resume")
+        k1, k2, k3, k4 = st.columns(4)
+        
+        # Total Drafts (Unique Years)
+        num_drafts = owner_df['Year'].nunique()
+        k1.metric("Total Drafts", f"{num_drafts}")
+        
+        # Total Picks
+        k2.metric("Total Picks", f"{len(owner_df)}")
+
+        # Avg Draft Slot & Rank
+        avg_slot = owner_slots['Pick'].mean()
+        slot_rank = league_slots.index.get_loc(selected_owner) + 1
+        k3.metric("Avg Draft Slot", f"{avg_slot:.1f}", f"Rank: {slot_rank}/{len(league_slots)}")
+
+        # Avg Age & Rank
+        avg_age = owner_df['Age When Drafted'].mean()
+        age_rank = league_age.index.get_loc(selected_owner) + 1
+        k4.metric("Avg Player Age", f"{avg_age:.1f}", f"Rank: {age_rank}/{len(league_age)}")
+
+        # 4. DRAFT SLOT HISTORY CHART
+        # ----------------------------------------------
+        st.divider()
+        st.subheader("Draft Slot History")
+        st.info("Which pick did you have in Round 1 each year?")
+        fig_slots = px.bar(owner_slots, x='Year', y='Pick', 
+                           title=f"Draft Slot by Year",
+                           labels={'Pick': 'Pick Number (Round 1)'},
+                           color_discrete_sequence=['#94a3b8'])
+        # Invert Y axis because Pick 1 is "Higher" than Pick 12
+        fig_slots.update_yaxes(autorange="reversed") 
+        st.plotly_chart(fig_slots, use_container_width=True)
+
+        # 5. TEAMS & POSITIONS
+        # ----------------------------------------------
+        col_team, col_pos = st.columns(2)
+
+        with col_team:
+            st.subheader("Most Drafted NFL Teams")
+            team_counts = owner_df['Team'].value_counts().reset_index()
+            team_counts.columns = ['NFL Team', 'Count']
+            fig_teams = px.bar(team_counts, x='Count', y='NFL Team', 
+                               orientation='h', 
+                               title="Picks by NFL Team",
+                               height=600)
+            fig_teams.update_layout(yaxis={'categoryorder':'total ascending'})
+            st.plotly_chart(fig_teams, use_container_width=True)
+
+        with col_pos:
+            st.subheader("Most Drafted Positions")
+            pos_counts = owner_df['Position'].value_counts().reset_index()
+            pos_counts.columns = ['Position', 'Count']
+            fig_pos = px.pie(pos_counts, values='Count', names='Position', 
+                             title="Positional Breakdown",
+                             hole=0.4)
+            st.plotly_chart(fig_pos, use_container_width=True)
 
     # ==========================================
     # PAGE 2: LEAGUE RECORDS
