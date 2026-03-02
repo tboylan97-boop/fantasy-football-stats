@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 # 1. Page Setup
-st.set_page_config(page_title="Draft Room Analytics", layout="wide")
+st.set_page_config(page_title="The Ultimate Draft Room", layout="wide")
 
 # 2. Data Loading
 @st.cache_data
@@ -29,23 +29,21 @@ try:
     # LOGIC: CALCULATING DRAFT SLOTS (ROUND 1 ONLY)
     # ==========================================
     # This identifies the "Draft Slot" (1-12) for every manager in every year
-    # We take the first pick they made in Round 1 for each year
     slots_df = draft_df[draft_df['Round'] == 1].groupby(['Owner', 'Year'])['Pick'].first().reset_index()
     
-    # Calculate the Average Draft Slot for every owner in the league
+    # Calculate league-wide averages for the Rank Popover
     league_avg_slots = slots_df.groupby('Owner')['Pick'].mean().sort_values()
     
-    # Get stats for the specific selected owner
+    # Selected owner stats
     owner_avg_slot = league_avg_slots[selected_owner]
-    # Rank: 1 = lowest avg pick (often drafts early), 12 = highest (often drafts late)
     pick_rank = league_avg_slots.index.get_loc(selected_owner) + 1
 
-    # League Age Ranking (for the metric below)
+    # League Age Ranking Logic
     league_age = draft_df.groupby('Owner')['Age When Drafted'].mean().sort_values()
     age_rank = league_age.index.get_loc(selected_owner) + 1
 
     # ==========================================
-    # TOP ROW: THE BIG STATS
+    # TOP ROW: THE BIG STATS (WITH CLICKABLE POP-UPS)
     # ==========================================
     st.subheader("Draft Resume")
     col1, col2, col3, col4 = st.columns(4)
@@ -59,17 +57,40 @@ try:
         st.metric("Total # of Picks", total_picks)
 
     with col3:
-        # This now shows the 1-12 style average
-        st.metric("Average Draft Pick", f"{owner_avg_slot:.1f}", f"Rank: {pick_rank}/{len(league_avg_slots)}")
+        # Show the 1-12 Average
+        st.metric("Average Draft Pick", f"{owner_avg_slot:.1f}")
+        
+        # --- CLICKABLE RANKING WINDOW ---
+        with st.popover(f"🏆 Rank: {pick_rank}/{len(league_avg_slots)}"):
+            st.markdown("### Draft Slot Leaderboard")
+            st.caption("Sorted by Lowest Average Draft Position (1-12)")
+            
+            # Formatting the table for the pop-up
+            pick_ranking_table = league_avg_slots.reset_index()
+            pick_ranking_table.columns = ['Owner', 'Avg Pick']
+            pick_ranking_table.index = pick_ranking_table.index + 1 # Start rank at 1
+            
+            st.table(pick_ranking_table.style.format({'Avg Pick': '{:.1f}'}))
 
     with col4:
         avg_age = owner_df['Age When Drafted'].mean()
-        st.metric("Avg Player Age", f"{avg_age:.1f}", f"Rank: {age_rank}/{len(league_age)}")
+        st.metric("Avg Player Age", f"{avg_age:.1f}")
+        
+        # --- CLICKABLE AGE RANKING WINDOW ---
+        with st.popover(f"🎂 Rank: {age_rank}/{len(league_age)}"):
+            st.markdown("### Age Preference Leaderboard")
+            st.caption("Sorted from Youngest Average to Oldest")
+            
+            age_ranking_table = league_age.reset_index()
+            age_ranking_table.columns = ['Owner', 'Avg Age']
+            age_ranking_table.index = age_ranking_table.index + 1
+            
+            st.table(age_ranking_table.style.format({'Avg Age': '{:.1f}'}))
 
     st.divider()
 
     # ==========================================
-    # CHART: DRAFT SLOT HISTORY
+    # CHART: DRAFT SLOT HISTORY (ROUND 1 ONLY)
     # ==========================================
     st.subheader("Historical Draft Slot (Round 1)")
     owner_slots = slots_df[slots_df['Owner'] == selected_owner].sort_values('Year')
@@ -79,10 +100,10 @@ try:
         x='Year', 
         y='Pick', 
         text='Pick',
-        title="What pick did you have in the 1st Round?",
+        title="Round 1 Pick History",
         color_discrete_sequence=['#3b82f6']
     )
-    # Reverse Y-axis because Pick 1 is "Better" than Pick 12
+    # Reverse Y-axis so Pick 1 is at the top
     fig_slots.update_yaxes(autorange="reversed", title="Pick Number", tick0=1, dtick=1)
     st.plotly_chart(fig_slots, use_container_width=True)
 
@@ -94,7 +115,6 @@ try:
 
     with left_col:
         st.subheader("Most Drafted NFL Teams")
-        # Ensure all 32 teams could be represented, sorted by count
         team_counts = owner_df['Team'].value_counts().reset_index()
         team_counts.columns = ['NFL Team', 'Count']
         
@@ -103,7 +123,7 @@ try:
             y='NFL Team', 
             x='Count', 
             orientation='h',
-            height=700,
+            height=700, # Tall enough to see all teams
             color='Count',
             color_continuous_scale='Blues',
             text='Count'
@@ -122,7 +142,7 @@ try:
             y='Count',
             color='Position',
             text='Count',
-            title="Positional Strategy (All Rounds)"
+            title="Positional Breakdown (Career)"
         )
         st.plotly_chart(fig_pos, use_container_width=True)
 
@@ -131,8 +151,10 @@ try:
     # ==========================================
     st.divider()
     st.subheader("Raw Draft Data")
-    display_df = owner_df[['Year', 'Round', 'Pick', 'Player Name', 'Team', 'Position', 'Age When Drafted']].copy()
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    # Simplify view for the final table
+    final_table_df = owner_df[['Year', 'Round', 'Pick', 'Player Name', 'Team', 'Position', 'Age When Drafted']].copy()
+    st.dataframe(final_table_df, use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Something went wrong: {e}")
+    st.info("Check that 'Draft Data GPT (1).xlsx' is uploaded to your GitHub repository.")
