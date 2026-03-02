@@ -11,7 +11,7 @@ def load_data():
     draft_df = pd.read_excel('Draft Data GPT (1).xlsx')
     history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
     
-    # CLEANING: Remove extra spaces and force uppercase on Teams/Owners
+    # CLEANING: Standardize Team and Owner names to prevent duplicates
     draft_df['Team'] = draft_df['Team'].astype(str).str.strip().str.upper()
     draft_df['Owner'] = draft_df['Owner'].astype(str).str.strip()
     
@@ -71,13 +71,12 @@ try:
 
             # ROW 1: AGE & NAMES
             col_age, col_first, col_last = st.columns(3)
-
             league_age = draft_df.groupby('Owner')['Age When Drafted'].mean().sort_values()
             age_rank = league_age.index.get_loc(selected_owner) + 1
 
             with col_age:
                 st.metric("Avg Player Age", f"{owner_draft['Age When Drafted'].mean():.1f}")
-                with st.popover(f"Rank: {age_rank}/{len(league_age)} vs League"):
+                with st.popover(f"Rank: {age_rank}/{len(league_age)}"):
                     st.table(league_age.reset_index().rename(columns={'index':'Owner','Age When Drafted':'Age'}))
 
             names_df = owner_draft[~owner_draft['Position'].str.upper().isin(['DST', 'DEF', 'D/ST'])].copy()
@@ -104,18 +103,8 @@ try:
             team_counts.columns = ['Team', 'Picks']
             team_counts = team_counts.sort_values('Picks', ascending=False)
 
-            fig_teams = px.bar(
-                team_counts, x='Team', y='Picks', text='Picks',
-                color='Picks', color_continuous_scale='Blues',
-                height=500, title="Career Picks by NFL Franchise"
-            )
-            fig_teams.update_layout(
-                xaxis_tickangle=-45, 
-                xaxis_title="NFL Team",
-                yaxis_title="Times Drafted",
-                margin=dict(b=100),
-                coloraxis_showscale=False
-            )
+            fig_teams = px.bar(team_counts, x='Team', y='Picks', text='Picks', color='Picks', color_continuous_scale='Blues', height=500)
+            fig_teams.update_layout(xaxis_tickangle=-45, margin=dict(b=100), coloraxis_showscale=False)
             st.plotly_chart(fig_teams, use_container_width=True)
 
             st.divider()
@@ -133,53 +122,26 @@ try:
                 pos_counts = owner_draft['Position'].value_counts().reset_index()
                 pos_counts.columns = ['Position', 'count']
                 
-                fig_pos = px.pie(
-                    pos_counts, 
-                    values='count', 
-                    names='Position', 
-                    hole=0.4,
-                    title="Positional Strategy"
-                )
+                # REBUILT PIE CHART (SMART LABELS)
+                fig_pos = px.pie(pos_counts, values='count', names='Position', hole=0.4)
                 
                 fig_pos.update_traces(
                     textinfo='label+percent', 
-                    textposition='inside',
+                    textposition='auto', # SMART POSITIONING
                     insidetextorientation='horizontal',
-                    # Hard-coded formatting for bold white text
-                    texttemplate="<b>%{label}</b><br>%{percent}",
-                    textfont=dict(
-                        family="Arial Black, Gadget, sans-serif",
-                        size=14,
-                        color="white"
-                    ),
-                    insidetextfont_color="white", # Hard override for contrast logic
+                    textfont=dict(family="Arial Black", size=14, color="white"),
                     marker=dict(line=dict(color='#000000', width=1.5))
                 )
-
+                
                 fig_pos.update_layout(
                     showlegend=False,
                     uniformtext_minsize=12,
-                    uniformtext_mode='show'
+                    uniformtext_mode='hide'
                 )
+                # This ensures small slices (TE/K) pop their labels outside with a line
+                fig_pos.update_traces(outsidetextfont_color="black") 
+                
                 st.plotly_chart(fig_pos, use_container_width=True)
-
-        elif sub_page == "Performance":
-            st.subheader("Value Over ADP (VOADP) Analysis")
-            st.plotly_chart(px.scatter(owner_draft, x="Round", y="VOADP", color="VOADP Tier", size="Points", hover_data=["Player Name"]), use_container_width=True)
-
-        elif sub_page == "Scoring":
-            st.subheader("Production Metrics")
-            st.plotly_chart(px.scatter(owner_draft, x="GP", y="Points", color="Position", size="PPG", hover_data=["Player Name"]), use_container_width=True)
-
-    elif main_page == "Owner Statistics":
-        st.title(f"📊 {selected_owner}: Career Performance")
-        wins = len(owner_history[owner_history['Result'] == 'Win'])
-        losses = len(owner_history[owner_history['Result'] == 'Loss'])
-        st.metric("All-Time Record", f"{wins}-{losses}")
-
-    elif main_page == "League Records":
-        st.title("📜 KFL Hall of Records")
-        st.dataframe(history_df.sort_values('Points', ascending=False).head(10)[['Year', 'Owner', 'Points']], hide_index=True)
 
 except Exception as e:
     st.error(f"KFL App Error: {e}")
