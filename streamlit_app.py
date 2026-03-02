@@ -133,7 +133,7 @@ try:
                 pos_counts = owner_draft['Position'].value_counts().reset_index()
                 pos_counts.columns = ['Position', 'count']
                 
-                # UPDATED PIE CHART WITH PERMANENT LABELS
+                # REBUILT PIE CHART (CLEANER, TEXT INSIDE)
                 fig_pos = px.pie(
                     pos_counts, 
                     values='count', 
@@ -141,12 +141,14 @@ try:
                     hole=0.4,
                     title="Positional Strategy"
                 )
-                # This line forces the labels to show Position + Percent permanently
                 fig_pos.update_traces(
                     textinfo='label+percent', 
-                    textposition='outside',
-                    pull=[0.05] * len(pos_counts) # Slightly separates the slices for better look
+                    textposition='inside', # Text moved inside the slices
+                    insidetextorientation='horizontal',
+                    textfont_size=14,
+                    marker=dict(line=dict(color='#000000', width=1)) # Adds subtle black border to slices
                 )
+                fig_pos.update_layout(showlegend=False) # Removes side legend as text is inside
                 st.plotly_chart(fig_pos, use_container_width=True)
 
         elif sub_page == "Performance":
