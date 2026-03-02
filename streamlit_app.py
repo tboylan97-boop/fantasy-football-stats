@@ -206,22 +206,38 @@ try:
                 p_counts.columns = ['Position', 'count']
                 st.plotly_chart(px.pie(p_counts, values='count', names='Position', hole=0.4), use_container_width=True)
 
-        # --- PERFORMANCE (The New Formula) ---
+       # --- PERFORMANCE (The Report Card) ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
             
             hof, hos = st.columns(2)
             with hof:
                 st.success("### ⭐ Draft Hall of Fame")
-                # Showing Top 5 by the new Success Score
                 top_picks = owner_draft.sort_values('Success Score', ascending=False).head(5)
                 for _, p in top_picks.iterrows():
-                    st.write(f"**{p['Player Name']} ({p['Year']})** - {p['Grade']} ({p['Success Score']})")
+                    # SYNOPSIS LOGIC
+                    champ_text = "🏆 Champion" if p.get('Win Championship?') in ['Yes', 'YES', 1, 1.0, 'Y'] else ""
+                    synopsis = f"{p['Points']:.0f} Pts ({p['PPG']:.1f} PPG) | {p['GP']} Games {champ_text}"
+                    
+                    st.markdown(f"**{p['Player Name']} ({p['Year']})**")
+                    st.caption(f"Grade: **{p['Grade']}** | Score: **{p['Success Score']}**")
+                    st.write(f"*{synopsis}*")
+                    st.divider()
+            
             with hos:
                 st.error("### 🗑️ Draft Hall of Shame")
+                # Filter out players with 0 GP to find "active" busts
                 real_busts = owner_draft[owner_draft['GP'] > 0].sort_values('Success Score', ascending=True).head(5)
                 for _, p in real_busts.iterrows():
-                    st.write(f"**{p['Player Name']} ({p['Year']})** - {p['Grade']} ({p['Success Score']})")
+                    # SYNOPSIS LOGIC
+                    missed = 17 - p['GP'] # Assuming 17 game season
+                    v_burn = abs(p['VOADP']) if p['VOADP'] < 0 else 0
+                    synopsis = f"Missed {missed:.0f} Games | {p['Points']:.0f} Total Pts | Value Burn: -{v_burn:.0f}"
+                    
+                    st.markdown(f"**{p['Player Name']} ({p['Year']})**")
+                    st.caption(f"Grade: **{p['Grade']}** | Score: **{p['Success Score']}**")
+                    st.write(f"*{synopsis}*")
+                    st.divider()
 
             st.divider()
             
