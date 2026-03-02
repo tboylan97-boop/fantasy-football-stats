@@ -31,47 +31,9 @@ def load_data():
     
     return draft_df, history_df
 
-# 3. CONTEXTUAL ANALYTICS FORMULA
-def calculate_success_score(row, full_data):
-    year = row.get('Year')
-    pos = row.get('Position', 'RB')
-    pts = row.get('Points', 0)
-    ppg = row.get('PPG', 0)
-    voadp = row.get('VOADP', 0)
-    pip = row.get('% of PIP', 0)
-    rd = row.get('Round', 1)
-    won_champ = str(row.get('Win Championship?', '')).strip().upper() in ['YES', '1', '1.0', 'Y']
-
-    # B1: Absolute Production (30%)
-    if pos == 'QB': baseline = 330
-    elif pos in ['K', 'DST', 'DEF', 'D/ST']: baseline = 195
-    elif pos == 'TE': baseline = 175
-    else: baseline = 225
-    abs_score = (pts / baseline) * 30
-
-    # B2: Yearly Dominance (30%)
-    yearly_pos_data = full_data[(full_data['Year'] == year) & (full_data['Position'] == pos)]
-    yearly_max = yearly_pos_data['Points'].max() if not yearly_pos_data.empty else 0
-    rel_score = (pts / yearly_max) * 30 if yearly_max > 0 else abs_score
-
-    # B3: Value/Maintenance (25%)
-    if rd <= 2: value_score = min(25, (ppg / 19) * 25)
-    else: value_score = min(25, (max(0, voadp) / 65) * 25)
-
-    # B4: Clutch (15%)
-    clutch_score = min(15, (pip / 0.22) * 15)
-    
-    total = abs_score + rel_score + value_score + clutch_score
-    if pts > 400: total += 10
-    
-    if not won_champ: total = min(99.9, total)
-    else:
-        if total >= 94: total = 100
-        elif total >= 80: total += 3
-    return round(total, 1)
-
+# 3. ANALYTICS FORMULA HELPERS
 def get_grade(score):
-    if score >= 100: return "S" 
+    if score >= 98: return "S" 
     if score >= 90: return "A+"
     if score >= 85: return "A"
     if score >= 75: return "B"
@@ -89,6 +51,50 @@ def get_clean_names(name):
         return " ".join(parts[:-2]), " ".join(parts[:-2:])
     return " ".join(parts[:-1]), parts[-1]
 
+# 4. PERFORMANCE REFINEMENT FORMULA (40/20 SPLIT)
+def refine_score(row, full_data):
+    pos = row.get('Position', 'RB')
+    pts = row.get('Points', 0)
+    ppg = row.get('PPG', 0)
+    voadp = row.get('VOADP', 0)
+    pip = row.get('% of PIP', 0)
+    rd = row.get('Round', 1)
+    won_champ = str(row.get('Win Championship?', '')).strip().upper() in ['YES', '1', '1.0', 'Y']
+
+    # B1: Absolute Production (40% - vs All-Time Baseline)
+    if pos == 'QB': baseline = 330
+    elif pos in ['K', 'DST', 'DEF', 'D/ST']: baseline = 215
+    elif pos == 'TE': baseline = 175
+    else: baseline = 225
+    abs_score = (pts / baseline) * 40
+
+    # B2: Yearly Dominance (20% - vs Position Top Scorer)
+    yearly_pos_data = full_data[(full_data['Year'] == row['Year']) & (full_data['Position'] == pos)]
+    yearly_max = yearly_pos_data['Points'].max() if not yearly_pos_data.empty else 0
+    rel_score = (pts / yearly_max) * 20 if yearly_max > 0 else (pts / baseline) * 20
+    
+    # B3: Value/Maintenance (25%)
+    if rd <= 2:
+        value_score = min(25, (ppg / 19) * 25)
+    else:
+        multiplier = 1.3 if pos in ['RB', 'WR', 'TE'] else 1.0
+        value_score = min(25, (max(0, voadp) / 65) * 25 * multiplier)
+
+    # B4: Clutch (15%)
+    clutch_score = min(15, (pip / 0.22) * 15)
+    
+    total = abs_score + rel_score + value_score + clutch_score
+    if pts > 400: total += 10
+    
+    if pos in ['K', 'DST', 'DEF', 'D/ST'] and not won_champ:
+        total = min(79, total)
+
+    if not won_champ: total = min(99.9, total)
+    else:
+        if total >= 94: total = 100
+        elif total >= 80: total += 3
+    return round(total, 1)
+
 try:
     draft_df, history_df = load_data()
     all_owners = sorted(draft_df['Owner'].unique())
@@ -99,7 +105,7 @@ try:
     selected_owner = st.sidebar.selectbox("Select Manager", all_owners)
     
     owner_draft = draft_df[draft_df['Owner'] == selected_owner].copy()
-    owner_draft['Success Score'] = owner_draft.apply(lambda row: calculate_success_score(row, draft_df), axis=1)
+    owner_draft['Success Score'] = owner_draft.apply(lambda r: refine_score(r, draft_df), axis=1)
     owner_draft['Grade'] = owner_draft['Success Score'].apply(get_grade)
     
     owner_history = history_df[history_df['Owner'] == selected_owner]
@@ -107,7 +113,7 @@ try:
     if main_page == "Draft Room":
         sub_page = st.sidebar.radio("SUB-MENU", ["Dashboard", "Archetype", "Performance", "Scoring"])
         
-        # --- SUB-TAB 1: DASHBOARD ---
+        # --- DASHBOARD ---
         if sub_page == "Dashboard":
             st.title(f"📈 {selected_owner}: Dashboard")
             c1, c2, c3 = st.columns(3)
@@ -119,11 +125,10 @@ try:
             fig_slots.update_yaxes(autorange="reversed", dtick=1)
             st.plotly_chart(fig_slots, use_container_width=True)
 
-        # --- SUB-TAB 2: ARCHETYPE (FULL RESTORATION) ---
+        # --- ARCHETYPE ---
         elif sub_page == "Archetype":
             st.title(f"🧬 {selected_owner}: Draft Archetype")
             
-            # 1. Names & Age Section
             st.subheader("Manager Tendencies")
             col_age, col_first, col_last = st.columns(3)
             league_age = draft_df.groupby('Owner')['Age When Drafted'].mean().sort_values()
@@ -149,7 +154,6 @@ try:
 
             st.divider()
             
-            # 2. NFL Team Reliance
             st.subheader("NFL Team Reliance")
             team_counts = owner_draft['Team'].value_counts().reset_index()
             team_counts.columns = ['Team', 'Picks']
@@ -164,7 +168,6 @@ try:
 
             st.divider()
 
-            # 3. Round Slider
             st.subheader("Round-by-Round Breakdown")
             available_rounds = sorted(owner_draft['Round'].unique())
             selected_round = st.select_slider("Toggle Round to see picks:", options=available_rounds)
@@ -176,7 +179,6 @@ try:
 
             st.divider()
 
-            # 4. Demographics Section
             st.subheader("Player Demographics")
             demo_l, demo_r = st.columns(2)
             with demo_l:
@@ -190,7 +192,6 @@ try:
                 sel_month = st.selectbox("View players born in:", [m for m in months_order if m in valid_players['Birth Month'].unique()])
                 with st.popover(f"🎈 View {sel_month} Birthdays"):
                     st.dataframe(valid_players[valid_players['Birth Month'] == sel_month][['Year', 'Player Name', 'Position', 'Round']], hide_index=True)
-            
             with demo_r:
                 st.write("#### 🧬 Racial Breakdown")
                 race_counts = valid_players['Race'].value_counts().reset_index()
@@ -203,7 +204,6 @@ try:
 
             st.divider()
 
-            # 5. Position Strategy
             st.subheader("Position Strategy")
             col_rep, col_p = st.columns(2)
             with col_rep:
@@ -221,56 +221,9 @@ try:
                 with st.popover(f"🚀 View all {sel_p}s"):
                     st.dataframe(owner_draft[owner_draft['Position'] == sel_p][['Year', 'Round', 'Pick', 'Player Name', 'Team']].sort_values('Year', ascending=False), hide_index=True)
 
-        # --- SUB-TAB 3: PERFORMANCE ---
-       # --- PERFORMANCE (Refined Positional Weighting) ---
+        # --- PERFORMANCE ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
-            
-            # --- UPDATED FORMULA LOGIC (Internal to this tab) ---
-           def refine_score(row, full_data):
-                pos = row.get('Position', 'RB')
-                pts = row.get('Points', 0)
-                ppg = row.get('PPG', 0)
-                voadp = row.get('VOADP', 0)
-                pip = row.get('% of PIP', 0)
-                rd = row.get('Round', 1)
-                won_champ = str(row.get('Win Championship?', '')).strip().upper() in ['YES', '1', '1.0', 'Y']
-
-                # B1: Absolute (30%)
-                if pos == 'QB': baseline = 330
-                elif pos in ['K', 'DST', 'DEF', 'D/ST']: baseline = 210 # Raised baseline to suppress kickers
-                elif pos == 'TE': baseline = 175
-                else: baseline = 220 # Slightly lowered for RBs to boost Mixon-types
-                abs_score = (pts / baseline) * 30
-
-                # B2: Yearly Dominance (30%)
-                yearly_pos_data = full_data[(full_data['Year'] == row['Year']) & (full_data['Position'] == pos)]
-                yearly_max = yearly_pos_data['Points'].max() if not yearly_pos_data.empty else 0
-                rel_score = (pts / yearly_max) * 30 if yearly_max > 0 else abs_score
-                
-                # SPECIAL KICKER PENALTY: Reduce relative impact for low-value positions
-                if pos in ['K', 'DST', 'DEF', 'D/ST']:
-                    rel_score = rel_score * 0.7 
-
-                # B3: Value/Maintenance (25%)
-                if rd <= 2: value_score = min(25, (ppg / 19) * 25)
-                else: value_score = min(25, (max(0, voadp) / 65) * 25)
-
-                # B4: Clutch (15%)
-                clutch_score = min(15, (pip / 0.22) * 15)
-                
-                total = abs_score + rel_score + value_score + clutch_score
-                if pts > 400: total += 10
-                if not won_champ: total = min(99.9, total)
-                else:
-                    if total >= 94: total = 100
-                    elif total >= 80: total += 3
-                return round(total, 1)
-
-            # Re-apply refined logic
-            owner_draft['Success Score'] = owner_draft.apply(lambda r: refine_score(r, draft_df), axis=1)
-            owner_draft['Grade'] = owner_draft['Success Score'].apply(get_grade)
-
             hof, hos = st.columns(2)
             with hof:
                 st.success("### ⭐ Draft Hall of Fame")
@@ -281,7 +234,6 @@ try:
                     c_pts = p.get('Championship points', 0)
                     c_text = f" | {c_pts:.1f} Championship Pts" if won and c_pts > 0 else ""
                     st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) {champ_bracket}</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG{c_text}</div>""", unsafe_allow_html=True)
-            
             with hos:
                 st.error("### 🗑️ Draft Hall of Shame")
                 busts = owner_draft[owner_draft['GP'] > 0].sort_values('Success Score', ascending=True).head(5)
@@ -290,12 +242,10 @@ try:
                     st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) |</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG | -{v_burn:.0f} Value</div>""", unsafe_allow_html=True)
             
             st.divider()
-            
             owner_draft['bubble_size'] = owner_draft['PPG'].apply(lambda x: max(2, x))
             fig_perf = px.scatter(owner_draft, x="Round", y="Success Score", color="Grade", size="bubble_size", hover_data=["Player Name", "Year", "Points", "Position"], 
                                    color_discrete_map={"S":"#FFD700", "A+":"#00FF00", "A":"#32CD32", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000", "F-":"#8B0000"})
             st.plotly_chart(fig_perf, use_container_width=True)
-            
             st.subheader("📋 Performance Review Log")
             review_df = owner_draft[['Year', 'Round', 'Pick', 'Player Name', 'Position', 'Points', 'PPG', 'GP', 'Success Score', 'Grade']].sort_values('Success Score', ascending=False)
             st.dataframe(review_df, use_container_width=True, hide_index=True, column_config={"Year": st.column_config.NumberColumn("Year", format="%d", width="small"), "Success Score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%.1f")})
