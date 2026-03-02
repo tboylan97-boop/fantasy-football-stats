@@ -123,22 +123,48 @@ try:
 
             st.divider()
 
-            # ROW 2: TEAM RELIANCE (Vertical Bar Fix)
+            # --- ROW 2: TEAM RELIANCE ---
             st.subheader("NFL Team Reliance")
-            all_nfl_teams = sorted(draft_df['Team'].unique())
-            team_counts = owner_draft['Team'].value_counts().reindex(all_nfl_teams, fill_value=0).reset_index()
-            team_counts.columns = ['Team', 'Picks']
-            team_counts = team_counts.sort_values('Picks', ascending=False)
+            all_nfl = sorted(draft_df['Team'].unique())
+            team_data = owner_draft['Team'].value_counts().reindex(all_nfl, fill_value=0).reset_index()
+            team_data.columns = ['Team', 'Picks']
+            team_data = team_data.sort_values('Picks', ascending=False)
 
+            # The Bar Chart
             fig_teams = px.bar(
-                team_counts, x='Team', y='Picks', text='Picks',
+                team_data, x='Team', y='Picks', text='Picks',
                 color='Picks', color_continuous_scale='Blues',
-                height=500, title="Career Picks by NFL Franchise"
+                height=450, title="Career Picks by NFL Franchise"
             )
-            fig_teams.update_layout(xaxis_tickangle=-45, xaxis_title="NFL Team", yaxis_title="Picks", margin=dict(b=100), coloraxis_showscale=False)
+            fig_teams.update_layout(
+                xaxis_tickangle=-45, 
+                xaxis_title="NFL Team", 
+                yaxis_title="Total Drafted", 
+                margin=dict(b=100), 
+                coloraxis_showscale=False
+            )
             st.plotly_chart(fig_teams, use_container_width=True)
 
-            st.divider()
+            # --- NFL TEAM DRILL-DOWN TOOL ---
+            st.write("🔍 **NFL Franchise Drill-Down**")
+            # Only show teams the manager has actually drafted from in the dropdown
+            active_teams = sorted(owner_draft[owner_draft['Team'] != 'N/A']['Team'].unique())
+            selected_team = st.selectbox("View history with the:", active_teams)
+            
+            with st.popover(f"📋 View all {selected_team} Picks"):
+                st.markdown(f"### {selected_owner}'s {selected_team} Pipeline")
+                
+                # Filter data for the selected NFL Team
+                team_history = owner_draft[owner_draft['Team'] == selected_team][
+                    ['Year', 'Round', 'Pick', 'Player Name', 'Position', 'ROI Score']
+                ].sort_values('Year', ascending=False)
+                
+                # Highlight the "Best" pick from this team
+                if not team_history.empty:
+                    best_pick = team_history.loc[team_history['ROI Score'].idxmax()]
+                    st.success(f"⭐ **Best Value:** {best_pick['Player Name']} ({best_pick['Year']}) with a {best_pick['ROI Score']} ROI Score")
+                
+                st.dataframe(team_history, hide_index=True, use_container_width=True)
 
             # ROW 3: FREQUENT FACES & POSITION BREAKDOWN
             col_freq, col_pos = st.columns(2)
