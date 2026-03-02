@@ -61,23 +61,90 @@ try:
             fig_slots.update_yaxes(autorange="reversed")
             st.plotly_chart(fig_slots, use_container_width=True)
 
-        # --- 2. ARCHETYPE (Personals) ---
+       # --- 2. ARCHETYPE (Manager Tendencies) ---
         elif sub_page == "Archetype":
             st.subheader("Manager Tendencies & Player Profiles")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.write("#### Positional Bias")
-                pos_counts = owner_draft['Position'].value_counts().reset_index()
-                st.plotly_chart(px.pie(pos_counts, values='count', names='Position', hole=0.4), use_container_width=True)
-            with col_b:
-                st.write("#### NFL Team Reliance")
-                team_counts = owner_draft['Team'].value_counts().head(10).reset_index()
-                st.plotly_chart(px.bar(team_counts, x='count', y='Team', orientation='h'), use_container_width=True)
             
+            # --- TOP ROW: AGE & NAME STATS ---
+            col_age, col_names = st.columns(2)
+            
+            with col_age:
+                avg_age = owner_draft['Age When Drafted'].mean()
+                st.metric("Avg Player Age", f"{avg_age:.1f}")
+                
+                # League Age Ranking Logic (Clickable Popover)
+                league_age = draft_df.groupby('Owner')['Age When Drafted'].mean().sort_values()
+                age_rank = league_age.index.get_loc(selected_owner) + 1
+                
+                with st.popover(f"🎂 View Age Rankings (Rank: {age_rank}/{len(league_age)})"):
+                    st.markdown("### KFL Age Preference")
+                    st.caption("Who drafts the youngest/oldest teams on average?")
+                    age_ranking_table = league_age.reset_index()
+                    age_ranking_table.columns = ['Owner', 'Avg Age']
+                    age_ranking_table.index += 1
+                    st.table(age_ranking_table.style.format({'Avg Age': '{:.1f}'}))
+
+            with col_names:
+                # Splitting names for "Fun Facts"
+                # We filter out DSTs/Defenses which might not have a standard First/Last name
+                valid_names = owner_draft[owner_draft['Position'] != 'DST']['Player Name'].dropna()
+                first_names = valid_names.apply(lambda x: x.split()[0] if len(x.split()) > 0 else "N/A")
+                last_names = valid_names.apply(lambda x: x.split()[-1] if len(x.split()) > 1 else "N/A")
+                
+                common_first = first_names.mode()[0] if not first_names.empty else "N/A"
+                common_last = last_names.mode()[0] if not last_names.empty else "N/A"
+                
+                st.write(f"**Most Common First Name:** {common_first}")
+                st.write(f"**Most Common Last Name:** {common_last}")
+
             st.divider()
-            st.write("#### Racial/Demographic Breakdown")
-            race_counts = owner_draft['Race'].value_counts().reset_index()
-            st.plotly_chart(px.bar(race_counts, x='Race', y='count', color='Race'), use_container_width=True)
+
+            # --- SECOND ROW: TEAM RELIANCE (Full List) ---
+            st.subheader("NFL Team Reliance (All 32 Teams)")
+            # Get counts for ALL teams, even if 0, by using the full league team list
+            all_nfl_teams = sorted(draft_df['Team'].unique())
+            team_counts = owner_draft['Team'].value_counts().reindex(all_nfl_teams, fill_value=0).reset_index()
+            team_counts.columns = ['NFL Team', 'Picks']
+            team_counts = team_counts.sort_values('Picks', ascending=True) # Ascending for the horizontal bar chart
+
+            fig_teams = px.bar(
+                team_counts, 
+                x='Picks', 
+                y='NFL Team', 
+                orientation='h',
+                height=800, # Tall to fit all 32
+                text='Picks',
+                title="Career Picks by NFL Team",
+                color='Picks',
+                color_continuous_scale='GnBu'
+            )
+            st.plotly_chart(fig_teams, use_container_width=True)
+
+            st.divider()
+
+            # --- THIRD ROW: FREQUENT FACES (Multi-Draft Players) ---
+            col_freq, col_pos = st.columns(2)
+            
+            with col_freq:
+                st.subheader("Frequent Faces")
+                st.caption("Players drafted by this owner 2 or more times")
+                
+                # Group by player name and count occurrences
+                player_repeats = owner_draft['Player Name'].value_counts().reset_index()
+                player_repeats.columns = ['Player Name', 'Times Drafted']
+                # Filter for only 2+ times
+                player_repeats = player_repeats[player_repeats['Times Drafted'] >= 2]
+                
+                if not player_repeats.empty:
+                    st.dataframe(player_repeats, use_container_width=True, hide_index=True)
+                else:
+                    st.write("No players drafted more than once by this owner.")
+
+            with col_pos:
+                st.subheader("Positional Bias")
+                pos_counts = owner_draft['Position'].value_counts().reset_index()
+                fig_pos = px.pie(pos_counts, values='count', names='Position', hole=0.4)
+                st.plotly_chart(fig_pos, use_container_width=True)
 
         # --- 3. PERFORMANCE (Value) ---
         elif sub_page == "Performance":
