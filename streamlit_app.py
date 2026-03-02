@@ -97,14 +97,9 @@ try:
 
             st.divider()
 
-            # ROW 2: TEAM RELIANCE (FIXED & CLEANED)
+            # ROW 2: TEAM RELIANCE
             st.subheader("NFL Team Reliance")
-            st.caption("Consolidated picks per franchise (excludes formatting errors)")
-            
-            # Clean list of all unique teams across the whole league
             all_nfl_teams = sorted(draft_df['Team'].unique())
-            
-            # Aggregate counts for the specific owner
             team_counts = owner_draft['Team'].value_counts().reindex(all_nfl_teams, fill_value=0).reset_index()
             team_counts.columns = ['Team', 'Picks']
             team_counts = team_counts.sort_values('Picks', ascending=False)
@@ -125,7 +120,7 @@ try:
 
             st.divider()
 
-            # ROW 3: FREQUENT FACES
+            # ROW 3: FREQUENT FACES & POSITION BREAKDOWN
             col_freq, col_pos = st.columns(2)
             with col_freq:
                 st.subheader("Frequent Faces")
@@ -136,7 +131,23 @@ try:
             with col_pos:
                 st.subheader("Position Breakdown")
                 pos_counts = owner_draft['Position'].value_counts().reset_index()
-                st.plotly_chart(px.pie(pos_counts, values='count', names='Position', hole=0.4), use_container_width=True)
+                pos_counts.columns = ['Position', 'count']
+                
+                # UPDATED PIE CHART WITH PERMANENT LABELS
+                fig_pos = px.pie(
+                    pos_counts, 
+                    values='count', 
+                    names='Position', 
+                    hole=0.4,
+                    title="Positional Strategy"
+                )
+                # This line forces the labels to show Position + Percent permanently
+                fig_pos.update_traces(
+                    textinfo='label+percent', 
+                    textposition='outside',
+                    pull=[0.05] * len(pos_counts) # Slightly separates the slices for better look
+                )
+                st.plotly_chart(fig_pos, use_container_width=True)
 
         elif sub_page == "Performance":
             st.subheader("Value Over ADP (VOADP) Analysis")
