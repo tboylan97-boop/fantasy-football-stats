@@ -34,11 +34,11 @@ def load_data():
 # 3. ANALYTICS FORMULA HELPERS
 def get_grade(score):
     if score >= 100: return "S" 
-    if score >= 90: return "A+"
-    if score >= 85: return "A"
-    if score >= 75: return "B"
-    if score >= 65: return "C"
-    if score >= 55: return "D"
+    if score >= 95: return "A+"
+    if score >= 90: return "A"
+    if score >= 80: return "B"
+    if score >= 70: return "C"
+    if score >= 60: return "D"
     if score >= 11: return "F"
     return "F-"
 
