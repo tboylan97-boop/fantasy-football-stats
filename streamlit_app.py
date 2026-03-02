@@ -14,7 +14,13 @@ def load_data():
     # Standardize column names
     draft_df.columns = draft_df.columns.str.strip()
     
-    # CRITICAL FIX: Handle empty cells in Birth Month and Race to prevent 'float vs str' errors
+    # --- SMART BIRTHDAY CONVERTER ---
+    # This checks if you have a "Birthday" column and turns it into months automatically
+    if 'Birthday' in draft_df.columns:
+        draft_df['Birthday'] = pd.to_datetime(draft_df['Birthday'], errors='coerce')
+        draft_df['Birth Month'] = draft_df['Birthday'].dt.month_name()
+    
+    # Handle empty cells to prevent crashes
     if 'Birth Month' in draft_df.columns:
         draft_df['Birth Month'] = draft_df['Birth Month'].fillna('Unknown').astype(str)
     if 'Race' in draft_df.columns:
@@ -67,20 +73,21 @@ try:
                 with st.popover(f"Rank: {age_rank}/{len(league_age)}"):
                     st.table(league_age.reset_index().rename(columns={'index':'Owner','Age When Drafted':'Age'}))
 
-            names_df = owner_draft[~owner_draft['Position'].isin(['DST', 'DEF', 'D/ST'])].copy()
-            names_df[['First', 'Last']] = names_df['Player Name'].apply(lambda x: pd.Series(get_clean_names(x)))
+            # Logic to filter out Defenses for Names and Race
+            valid_players = owner_draft[~owner_draft['Position'].isin(['DST', 'DEF', 'D/ST', 'DEFENSE'])].copy()
+            valid_players[['First', 'Last']] = valid_players['Player Name'].apply(lambda x: pd.Series(get_clean_names(x)))
 
             with col_first:
-                cf = names_df['First'].mode()[0] if not names_df['First'].empty else "N/A"
+                cf = valid_players['First'].mode()[0] if not valid_players['First'].empty else "N/A"
                 st.metric("Common First Name", cf)
                 with st.popover("View Players"):
-                    st.dataframe(names_df[names_df['First'] == cf][['Year', 'Player Name', 'Position']], hide_index=True)
+                    st.dataframe(valid_players[valid_players['First'] == cf][['Year', 'Player Name', 'Position']], hide_index=True)
 
             with col_last:
-                cl = names_df['Last'].mode()[0] if not names_df['Last'].empty else "N/A"
+                cl = valid_players['Last'].mode()[0] if not valid_players['Last'].empty else "N/A"
                 st.metric("Common Last Name", cl)
                 with st.popover("View Players"):
-                    st.dataframe(names_df[names_df['Last'] == cl][['Year', 'Player Name', 'Position']], hide_index=True)
+                    st.dataframe(valid_players[valid_players['Last'] == cl][['Year', 'Player Name', 'Position']], hide_index=True)
 
             st.divider()
 
@@ -110,36 +117,36 @@ try:
 
             st.divider()
 
-            # --- SECTION 4: DEMOGRAPHICS (Birth Month & Race) ---
-            st.subheader("Player Demographics")
+            # --- SECTION 4: DEMOGRAPHICS (Excludes D/ST) ---
+            st.subheader("Player Demographics (Excl. D/ST)")
             demo_left, demo_right = st.columns(2)
 
             with demo_left:
                 st.write("#### 🎂 Birth Month Frequency")
-                if 'Birth Month' in owner_draft.columns:
-                    months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'Unknown']
-                    m_counts = owner_draft['Birth Month'].value_counts().reindex(months, fill_value=0).reset_index()
+                if 'Birth Month' in valid_players.columns:
+                    months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+                    m_counts = valid_players['Birth Month'].value_counts().reindex(months, fill_value=0).reset_index()
                     m_counts.columns = ['Month', 'Picks']
                     st.plotly_chart(px.bar(m_counts, x='Picks', y='Month', orientation='h', color='Picks', color_continuous_scale='Sunset', height=400), use_container_width=True)
                     
-                    sel_month = st.selectbox("View players born in:", [m for m in months if m != 'Unknown'])
+                    sel_month = st.selectbox("View players born in:", months)
                     with st.popover(f"🎈 View {sel_month} Birthdays"):
-                        st.dataframe(owner_draft[owner_draft['Birth Month'] == sel_month][['Year', 'Player Name', 'Position', 'Team']], hide_index=True)
+                        st.dataframe(valid_players[valid_players['Birth Month'] == sel_month][['Year', 'Player Name', 'Position', 'Team']], hide_index=True)
 
             with demo_right:
                 st.write("#### 🧬 Racial Breakdown")
-                if 'Race' in owner_draft.columns:
-                    race_counts = owner_draft['Race'].value_counts().reset_index()
+                if 'Race' in valid_players.columns:
+                    race_counts = valid_players['Race'].value_counts().reset_index()
                     race_counts.columns = ['Race', 'Count']
                     st.plotly_chart(px.pie(race_counts, values='Count', names='Race', hole=0.5), use_container_width=True)
                     
-                    sel_race = st.selectbox("View players by race:", sorted(owner_draft['Race'].unique()))
+                    sel_race = st.selectbox("View players by race:", sorted(valid_players['Race'].unique()))
                     with st.popover(f"🧬 View {sel_race} Players"):
-                        st.dataframe(owner_draft[owner_draft['Race'] == sel_race][['Year', 'Player Name', 'Position', 'Team']], hide_index=True)
+                        st.dataframe(valid_players[valid_players['Race'] == sel_race][['Year', 'Player Name', 'Position', 'Team']], hide_index=True)
 
             st.divider()
 
-            # --- SECTION 5: REPEATS & POSITION STRATEGY (RESTORED) ---
+            # --- SECTION 5: REPEATS & POSITION STRATEGY ---
             st.subheader("Final Archetype Tally")
             col_rep, col_p = st.columns(2)
             
