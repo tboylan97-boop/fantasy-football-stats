@@ -8,10 +8,34 @@ st.set_page_config(page_title="KFL Archive", layout="wide")
 # 2. Data Loading
 @st.cache_data
 def load_data():
-    # Load both Excel files
     draft_df = pd.read_excel('Draft Data GPT (1).xlsx')
     history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
     return draft_df, history_df
+
+# Helper Function for Name Logic
+def get_clean_names(name):
+    if pd.isna(name):
+        return "", ""
+    
+    suffixes = ['JR', 'SR', 'II', 'III', 'IV', 'V', 'JR.', 'SR.']
+    parts = str(name).split()
+    
+    if len(parts) == 0:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], ""
+    
+    # Check if the last part is a suffix
+    if parts[-1].upper() in suffixes:
+        # Last name is the last two words (e.g., Thomas Jr.)
+        last_name = " ".join(parts[-2:])
+        first_name = " ".join(parts[:-2]) if len(parts) > 2 else parts[0]
+    else:
+        # Standard last word logic
+        last_name = parts[-1]
+        first_name = " ".join(parts[:-1])
+        
+    return first_name, last_name
 
 try:
     draft_df, history_df = load_data()
@@ -79,19 +103,23 @@ try:
                     age_table.index += 1
                     st.table(age_table.style.format({'Avg Age': '{:.1f}'}))
 
-            # NAME ANALYSIS (Filter out D/ST)
+            # --- REFINED NAME ANALYSIS ---
+            # Filter out D/ST and non-player rows
             names_df = owner_draft[~owner_draft['Position'].str.upper().isin(['DST', 'DEF', 'D/ST', 'DEFENSE'])].copy()
             names_df = names_df.dropna(subset=['Player Name'])
-            names_df['First'] = names_df['Player Name'].apply(lambda x: x.split()[0] if len(x.split()) > 0 else "")
-            names_df['Last'] = names_df['Player Name'].apply(lambda x: x.split()[-1] if len(x.split()) > 1 else "")
+            
+            # Apply our new suffix-aware logic
+            names_df[['First', 'Last']] = names_df['Player Name'].apply(lambda x: pd.Series(get_clean_names(x)))
 
             with col_first:
                 if not names_df['First'].empty:
                     common_first = names_df['First'].mode()[0]
                     st.metric("Common First Name", common_first)
-                    with st.popover("View Full List"):
+                    with st.popover("View All Players"):
                         st.write(f"Players named **{common_first}** drafted by {selected_owner}:")
-                        st.dataframe(names_df[names_df['First'] == common_first][['Year', 'Player Name']].drop_duplicates(), hide_index=True)
+                        # Show distinct players and their first draft year
+                        matches = names_df[names_df['First'] == common_first][['Year', 'Player Name', 'Position']].sort_values('Year')
+                        st.dataframe(matches, hide_index=True, use_container_width=True)
                 else:
                     st.metric("Common First Name", "N/A")
 
@@ -99,16 +127,17 @@ try:
                 if not names_df['Last'].empty:
                     common_last = names_df['Last'].mode()[0]
                     st.metric("Common Last Name", common_last)
-                    with st.popover("View Full List"):
+                    with st.popover("View All Players"):
                         st.write(f"Players with last name **{common_last}** drafted by {selected_owner}:")
-                        st.dataframe(names_df[names_df['Last'] == common_last][['Year', 'Player Name']].drop_duplicates(), hide_index=True)
+                        matches = names_df[names_df['Last'] == common_last][['Year', 'Player Name', 'Position']].sort_values('Year')
+                        st.dataframe(matches, hide_index=True, use_container_width=True)
                 else:
                     st.metric("Common Last Name", "N/A")
 
             st.divider()
 
             # --- ROW 2: TEAM RELIANCE (Full 32 Teams) ---
-            st.subheader("NFL Team Reliance (Full Career History)")
+            st.subheader("NFL Team Reliance")
             all_nfl_teams = sorted(draft_df['Team'].unique())
             team_counts = owner_draft['Team'].value_counts().reindex(all_nfl_teams, fill_value=0).reset_index()
             team_counts.columns = ['NFL Team', 'Picks']
@@ -119,7 +148,7 @@ try:
 
             st.divider()
 
-            # --- ROW 3: FREQUENT FACES & POSITIONS ---
+            # --- ROW 3: FREQUENT FACES ---
             col_freq, col_pos = st.columns(2)
             with col_freq:
                 st.subheader("Frequent Faces")
@@ -130,40 +159,32 @@ try:
                 if not repeats.empty:
                     st.dataframe(repeats, use_container_width=True, hide_index=True)
                 else:
-                    st.write("No repeats found for this manager.")
+                    st.write("No players drafted 2+ times.")
 
             with col_pos:
                 st.subheader("Position Breakdown")
                 pos_counts = owner_draft['Position'].value_counts().reset_index()
                 st.plotly_chart(px.pie(pos_counts, values='count', names='Position', hole=0.4), use_container_width=True)
 
-        # --- 3. PERFORMANCE (Value) ---
+        # --- 3. PERFORMANCE & 4. SCORING (Placeholders) ---
         elif sub_page == "Performance":
             st.subheader("Draft Value & ROI Analysis")
-            fig_roi = px.scatter(owner_draft, x="Round", y="VOADP", color="VOADP Tier", size="Points", hover_data=["Player Name", "Year"])
-            st.plotly_chart(fig_roi, use_container_width=True)
+            st.plotly_chart(px.scatter(owner_draft, x="Round", y="VOADP", color="VOADP Tier", hover_data=["Player Name"]), use_container_width=True)
 
-        # --- 4. SCORING (Output) ---
         elif sub_page == "Scoring":
             st.subheader("Production & Reliability")
-            sc1, sc2 = st.columns(2)
-            sc1.metric("Avg PPG", f"{owner_draft['PPG'].mean():.1f}")
-            sc2.metric("Total Games Missed", f"{owner_draft['Games missed'].sum():.0f}")
             st.plotly_chart(px.scatter(owner_draft, x="GP", y="Points", color="Position", size="PPG"), use_container_width=True)
 
     # ==========================================
-    # OTHER PAGES (OWNER STATS & RECORDS)
+    # OTHER MAIN PAGES
     # ==========================================
     elif main_page == "Owner Statistics":
         st.title(f"📊 {selected_owner}: Career Performance")
-        wins = len(history_df[(history_df['Owner'] == selected_owner) & (history_df['Result'] == 'Win')])
-        losses = len(history_df[(history_df['Owner'] == selected_owner) & (history_df['Result'] == 'Loss')])
-        st.metric("All-Time Record", f"{wins}-{losses}")
+        # Add basic record logic here
         
     elif main_page == "League Records":
         st.title("📜 KFL Hall of Records")
-        st.subheader("All-Time Single Game Highs")
         st.dataframe(history_df.sort_values('Points', ascending=False).head(10)[['Year', 'Week', 'Owner', 'Points']], hide_index=True)
 
 except Exception as e:
-    st.error(f"Error loading KFL data: {e}")
+    st.error(f"KFL App Error: {e}")
