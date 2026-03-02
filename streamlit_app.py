@@ -10,58 +10,84 @@ st.set_page_config(page_title="KFL Archive", layout="wide")
 def load_data():
     draft_df = pd.read_excel('Draft Data GPT (1).xlsx')
     history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
-    
-    # Clean Column Headers
     draft_df.columns = draft_df.columns.str.strip()
     
-    # AGGRESSIVE CLEANING: Race and Birth Month (Fixes 'Unknown' issue)
-    if 'Race' in draft_df.columns:
-        draft_df['Race'] = draft_df['Race'].astype(str).str.strip().replace(['nan', 'None', 'null'], 'Unknown')
-    if 'Birth Month' in draft_df.columns:
-        draft_df['Birth Month'] = draft_df['Birth Month'].astype(str).str.strip().replace(['nan', 'None', 'null'], 'Unknown')
-
-    # Smart Birthday Converter
+    # Cleaning Demographics
     if 'Birthday' in draft_df.columns:
         draft_df['Birthday'] = pd.to_datetime(draft_df['Birthday'], errors='coerce')
-        # Only overwrite Birth Month if the Birthday column actually contains a date
-        mask = draft_df['Birthday'].notna()
-        draft_df.loc[mask, 'Birth Month'] = draft_df.loc[mask, 'Birthday'].dt.month_name()
+        draft_df['Birth Month'] = draft_df['Birthday'].dt.month_name()
     
-    # Final cleanup for empty months/races
-    draft_df['Birth Month'] = draft_df['Birth Month'].fillna('Unknown')
-    draft_df['Race'] = draft_df['Race'].fillna('Unknown')
+    for col in ['Birth Month', 'Race', 'VOADP Tier']:
+        if col in draft_df.columns:
+            draft_df[col] = draft_df[col].fillna('Unknown').astype(str)
 
-    # Clean Team, Owner, and Position
     for col in ['Team', 'Owner', 'Position']:
         if col in draft_df.columns:
             draft_df[col] = draft_df[col].astype(str).str.strip().str.upper()
 
-    # Numeric formatting for analysis
     for col in ['PPG', 'GP', 'VOADP', 'Points', '% of PIP']:
         if col in draft_df.columns:
             draft_df[col] = pd.to_numeric(draft_df[col], errors='coerce').fillna(0)
     
     return draft_df, history_df
 
-# 3. ANALYTICS FORMULAS
+# ==========================================
+# 3. ULTIMATE KFL SUCCESS FORMULA (Positional Curve)
+# ==========================================
 def calculate_success_score(row):
-    ppg = max(0, row.get('PPG', 0))
-    gp = max(0, row.get('GP', 0))
-    reg_score = min(60, ((ppg * gp) / 210) * 60)
-    voadp = max(0, row.get('VOADP', 0))
-    roi_score = min(25, (voadp / 50) * 25)
-    pip = max(0, row.get('% of PIP', 0))
-    clutch_score = min(15, (pip / 0.20) * 15)
-    return round(reg_score + roi_score + clutch_score, 1)
+    pos = row.get('Position', 'RB')
+    pts = row.get('Points', 0)
+    ppg = row.get('PPG', 0)
+    gp = row.get('GP', 0)
+    voadp = row.get('VOADP', 0)
+    pip = row.get('% of PIP', 0)
+    rd = row.get('Round', 1)
+
+    # A. PRODUCTION SCORE (60% Weight)
+    # We set "Elite Baselines" by position
+    if pos == 'QB':
+        baseline = 320 # QBs need more pts to be elite
+    elif pos in ['TE', 'K', 'DST', 'DEF']:
+        baseline = 160 # TEs/K/DST need fewer
+    else:
+        baseline = 220 # RBs and WRs
+
+    # Dominance = How far they cleared their positional baseline
+    # We use (Points / Baseline) but cap it at 70 points for the "Production" bucket
+    prod_raw = (pts / baseline) * 60
+    
+    # B. DRAFT VALUE / MAINTENANCE (25% Weight)
+    # If drafted in Round 1 or 2, we reward "Staying Elite"
+    # If drafted late, we reward "VOADP Movement"
+    if rd <= 2:
+        # Maintenance Reward: If you pick a stud and he IS a stud
+        # We look at PPG. If PPG > 18, they maintained elite status
+        value_score = min(25, (ppg / 18) * 25)
+    else:
+        # ROI Reward: Value for late picks
+        value_score = min(25, (max(0, voadp) / 60) * 25)
+
+    # C. CLUTCH FACTOR (15% Weight)
+    clutch_score = min(15, (pip / 0.22) * 15)
+
+    total = prod_raw + value_score + clutch_score
+    
+    # CMC 2019 Protection: If total points > 400, they get a "Legend" boost
+    if pts > 400:
+        total += 10
+        
+    return min(100, round(total, 1))
 
 def get_grade(score):
-    if score >= 90: return "A+"
+    if score >= 95: return "S" # Legendary
+    if score >= 88: return "A+"
     if score >= 80: return "A"
     if score >= 70: return "B"
     if score >= 60: return "C"
     if score >= 50: return "D"
     return "F"
 
+# Helper for Name Logic
 def get_clean_names(name):
     if pd.isna(name): return "", ""
     suffixes = ['JR', 'SR', 'II', 'III', 'IV', 'V', 'JR.', 'SR.']
@@ -85,32 +111,28 @@ try:
     owner_draft = draft_df[draft_df['Owner'] == selected_owner].copy()
     owner_history = history_df[history_df['Owner'] == selected_owner]
     
-    # Performance Grades
+    # Run the new Formula
     owner_draft['Success Score'] = owner_draft.apply(calculate_success_score, axis=1)
     owner_draft['Grade'] = owner_draft['Success Score'].apply(get_grade)
 
     if main_page == "Draft Room":
         sub_page = st.sidebar.radio("SUB-MENU", ["Dashboard", "Archetype", "Performance", "Scoring"])
         
-        # --- DASHBOARD ---
         if sub_page == "Dashboard":
             st.title(f"📈 {selected_owner}: Dashboard")
             c1, c2, c3 = st.columns(3)
-            c1.metric("Total Career Picks", len(owner_draft))
+            c1.metric("Total Picks", len(owner_draft))
             c2.metric("Draft Years", owner_draft['Year'].nunique())
             c3.metric("Avg Success Score", f"{owner_draft['Success Score'].mean():.1f}")
             
             slots = draft_df[draft_df['Round'] == 1].groupby(['Owner', 'Year'])['Pick'].first().reset_index()
-            fig_slots = px.bar(slots[slots['Owner'] == selected_owner], x='Year', y='Pick', text='Pick', title="Round 1 Draft Slot History")
+            fig_slots = px.bar(slots[slots['Owner'] == selected_owner], x='Year', y='Pick', text='Pick', title="Round 1 Draft Slot")
             fig_slots.update_yaxes(autorange="reversed", dtick=1)
             st.plotly_chart(fig_slots, use_container_width=True)
 
-        # --- ARCHETYPE ---
         elif sub_page == "Archetype":
             st.title(f"🧬 {selected_owner}: Archetype")
             
-            # Tendencies
-            st.subheader("Manager Tendencies")
             col_age, col_first, col_last = st.columns(3)
             league_age = draft_df.groupby('Owner')['Age When Drafted'].mean().sort_values()
             age_rank = league_age.index.get_loc(selected_owner) + 1
@@ -150,19 +172,7 @@ try:
 
             st.divider()
 
-            # Round Slider
-            st.subheader("Round-by-Round Breakdown")
-            available_rounds = sorted(owner_draft['Round'].unique())
-            selected_round = st.select_slider("Toggle Round", options=available_rounds)
-            round_df = owner_draft[owner_draft['Round'] == selected_round]
-            r_c1, r_c2 = st.columns([1, 2])
-            r_c1.metric("Picks Made", len(round_df))
-            r_c1.metric("Avg PPG", f"{round_df['PPG'].mean():.1f}")
-            r_c2.dataframe(round_df[['Year', 'Pick', 'Player Name', 'Position', 'Team']], hide_index=True, use_container_width=True)
-
-            st.divider()
-
-            # Birth Month & Race
+            # Demographics
             demo_l, demo_r = st.columns(2)
             with demo_l:
                 st.write("#### 🎂 Birth Month Frequency")
@@ -170,24 +180,16 @@ try:
                 m_counts = valid_players['Birth Month'].value_counts().reindex(months_order, fill_value=0).reset_index()
                 m_counts.columns = ['Birth Month', 'count']
                 st.plotly_chart(px.bar(m_counts, x='count', y='Birth Month', orientation='h', color='count', color_continuous_scale='Sunset'), use_container_width=True)
-                
-                sel_month = st.selectbox("View players born in:", [m for m in months_order if m in valid_players['Birth Month'].unique()])
-                with st.popover(f"🎈 View {sel_month} Birthdays"):
-                    st.dataframe(valid_players[valid_players['Birth Month'] == sel_month][['Year', 'Player Name', 'Position', 'Round']], hide_index=True)
             
             with demo_r:
                 st.write("#### 🧬 Racial Breakdown")
                 race_counts = valid_players['Race'].value_counts().reset_index()
                 race_counts.columns = ['Race', 'count']
                 st.plotly_chart(px.pie(race_counts, values='count', names='Race', hole=0.5), use_container_width=True)
-                
-                sel_race = st.selectbox("View players by race:", sorted(valid_players['Race'].unique()))
-                with st.popover(f"🧬 View {sel_race} Players"):
-                    st.dataframe(valid_players[valid_players['Race'] == sel_race][['Year', 'Player Name', 'Position', 'Round']], hide_index=True)
 
             st.divider()
 
-            # Repeats & Position Strategy
+            # Repeats & Position
             col_rep, col_p = st.columns(2)
             with col_rep:
                 st.write("#### Frequent Faces")
@@ -199,17 +201,15 @@ try:
                 p_counts = owner_draft['Position'].value_counts().reset_index()
                 p_counts.columns = ['Position', 'count']
                 st.plotly_chart(px.pie(p_counts, values='count', names='Position', hole=0.4), use_container_width=True)
-                
-                sel_p = st.selectbox("Search Position History:", sorted(owner_draft['Position'].unique()))
-                with st.popover(f"🚀 View all {sel_p}s"):
-                    st.dataframe(owner_draft[owner_draft['Position'] == sel_p][['Year', 'Round', 'Pick', 'Player Name', 'Team']].sort_values('Year', ascending=False), hide_index=True)
 
-        # --- PERFORMANCE ---
+        # --- PERFORMANCE (The New Formula) ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
+            
             hof, hos = st.columns(2)
             with hof:
                 st.success("### ⭐ Draft Hall of Fame")
+                # Showing Top 5 by the new Success Score
                 top_picks = owner_draft.sort_values('Success Score', ascending=False).head(5)
                 for _, p in top_picks.iterrows():
                     st.write(f"**{p['Player Name']} ({p['Year']})** - {p['Grade']} ({p['Success Score']})")
@@ -220,12 +220,13 @@ try:
                     st.write(f"**{p['Player Name']} ({p['Year']})** - {p['Grade']} ({p['Success Score']})")
 
             st.divider()
+            
             st.subheader("Success Score by Round")
             owner_draft['bubble_size'] = owner_draft['PPG'].apply(lambda x: max(2, x))
             fig_perf = px.scatter(
                 owner_draft, x="Round", y="Success Score", color="Grade", 
-                size="bubble_size", hover_data=["Player Name", "Year", "Points"],
-                color_discrete_map={"A+":"#00FF00", "A":"#7FFF00", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000"}
+                size="bubble_size", hover_data=["Player Name", "Year", "Points", "Position"],
+                color_discrete_map={"S":"#FFD700", "A+":"#00FF00", "A":"#7FFF00", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000"}
             )
             st.plotly_chart(fig_perf, use_container_width=True)
 
