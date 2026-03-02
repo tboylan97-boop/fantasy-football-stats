@@ -11,10 +11,16 @@ def load_data():
     draft_df = pd.read_excel('Draft Data GPT (1).xlsx')
     history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
     
-    # Standardize column names (remove hidden spaces)
+    # Standardize column names
     draft_df.columns = draft_df.columns.str.strip()
     
-    # Clean Team & Owner names
+    # CRITICAL FIX: Handle empty cells in Birth Month and Race to prevent 'float vs str' errors
+    if 'Birth Month' in draft_df.columns:
+        draft_df['Birth Month'] = draft_df['Birth Month'].fillna('Unknown').astype(str)
+    if 'Race' in draft_df.columns:
+        draft_df['Race'] = draft_df['Race'].fillna('Unknown').astype(str)
+    
+    # Clean Team, Owner, and Position
     draft_df['Team'] = draft_df['Team'].astype(str).str.strip().str.upper()
     draft_df['Owner'] = draft_df['Owner'].astype(str).str.strip()
     draft_df['Position'] = draft_df['Position'].astype(str).str.strip().str.upper()
@@ -45,9 +51,6 @@ try:
     
     owner_draft = draft_df[draft_df['Owner'] == selected_owner]
 
-    # ==========================================
-    # PAGE 1: DRAFT ROOM
-    # ==========================================
     if main_page == "Draft Room":
         sub_page = st.sidebar.radio("DRAFT SUB-MENU", ["Dashboard", "Archetype", "Performance", "Scoring"])
         st.title(f"🎯 {selected_owner}: {sub_page}")
@@ -86,15 +89,12 @@ try:
             all_nfl = sorted(draft_df['Team'].unique())
             team_counts = owner_draft['Team'].value_counts().reindex(all_nfl, fill_value=0).reset_index()
             team_counts.columns = ['Team', 'Picks']
-            team_counts = team_counts.sort_values('Picks', ascending=False)
-            st.plotly_chart(px.bar(team_counts, x='Team', y='Picks', text='Picks', color='Picks', color_continuous_scale='Blues', height=400), use_container_width=True)
+            st.plotly_chart(px.bar(team_counts.sort_values('Picks', ascending=False), x='Team', y='Picks', text='Picks', color='Picks', color_continuous_scale='Blues', height=400), use_container_width=True)
 
-            # Team Drill-down
             active_teams = sorted(owner_draft[owner_draft['Team'] != 'N/A']['Team'].unique())
-            sel_team = st.selectbox("View history with the:", active_teams)
+            sel_team = st.selectbox("View team history:", active_teams)
             with st.popover(f"📋 View all {sel_team} Picks"):
-                team_hist = owner_draft[owner_draft['Team'] == sel_team][['Year', 'Round', 'Pick', 'Player Name', 'Position']].sort_values('Year', ascending=False)
-                st.dataframe(team_hist, hide_index=True, use_container_width=True)
+                st.dataframe(owner_draft[owner_draft['Team'] == sel_team][['Year', 'Round', 'Pick', 'Player Name', 'Position']].sort_values('Year', ascending=False), hide_index=True)
 
             st.divider()
 
@@ -114,25 +114,18 @@ try:
             st.subheader("Player Demographics")
             demo_left, demo_right = st.columns(2)
 
-            # --- BIRTH MONTH LOGIC (Failsafe) ---
-            month_col = next((c for c in owner_draft.columns if 'Birth' in c or 'Month' in c), None)
-            
             with demo_left:
                 st.write("#### 🎂 Birth Month Frequency")
-                if month_col:
-                    months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-                    month_counts = owner_draft[month_col].value_counts().reindex(months, fill_value=0).reset_index()
-                    month_counts.columns = ['Month', 'Picks']
-                    st.plotly_chart(px.bar(month_counts, x='Picks', y='Month', orientation='h', color='Picks', color_continuous_scale='Sunset', height=400), use_container_width=True)
+                if 'Birth Month' in owner_draft.columns:
+                    months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'Unknown']
+                    m_counts = owner_draft['Birth Month'].value_counts().reindex(months, fill_value=0).reset_index()
+                    m_counts.columns = ['Month', 'Picks']
+                    st.plotly_chart(px.bar(m_counts, x='Picks', y='Month', orientation='h', color='Picks', color_continuous_scale='Sunset', height=400), use_container_width=True)
                     
-                    sel_month = st.selectbox("View players born in:", months)
+                    sel_month = st.selectbox("View players born in:", [m for m in months if m != 'Unknown'])
                     with st.popover(f"🎈 View {sel_month} Birthdays"):
-                        m_df = owner_draft[owner_draft[month_col] == sel_month][['Year', 'Player Name', 'Position', 'Team']]
-                        st.dataframe(m_df.sort_values('Year', ascending=False), hide_index=True)
-                else:
-                    st.warning("Could not find 'Birth Month' column in Excel. Please check column name.")
+                        st.dataframe(owner_draft[owner_draft['Birth Month'] == sel_month][['Year', 'Player Name', 'Position', 'Team']], hide_index=True)
 
-            # --- RACE LOGIC ---
             with demo_right:
                 st.write("#### 🧬 Racial Breakdown")
                 if 'Race' in owner_draft.columns:
@@ -142,36 +135,29 @@ try:
                     
                     sel_race = st.selectbox("View players by race:", sorted(owner_draft['Race'].unique()))
                     with st.popover(f"🧬 View {sel_race} Players"):
-                        r_df = owner_draft[owner_draft['Race'] == sel_race][['Year', 'Player Name', 'Position', 'Team']]
-                        st.dataframe(r_df.sort_values('Year', ascending=False), hide_index=True)
-                else:
-                    st.warning("Could not find 'Race' column in Excel.")
+                        st.dataframe(owner_draft[owner_draft['Race'] == sel_race][['Year', 'Player Name', 'Position', 'Team']], hide_index=True)
 
             st.divider()
 
-            # --- SECTION 5: REPEATS & POSITION BREAKDOWN ---
-            st.subheader("Frequent Faces & Final Tally")
-            col_freq, col_pos = st.columns(2)
+            # --- SECTION 5: REPEATS & POSITION STRATEGY (RESTORED) ---
+            st.subheader("Final Archetype Tally")
+            col_rep, col_p = st.columns(2)
             
-            with col_freq:
+            with col_rep:
                 st.write("#### Frequent Faces")
                 repeats = owner_draft['Player Name'].value_counts().reset_index()
                 repeats.columns = ['Player', 'Drafted']
                 st.dataframe(repeats[repeats['Drafted'] >= 2], use_container_width=True, hide_index=True)
 
-            with col_pos:
+            with col_p:
                 st.write("#### Position Strategy")
-                pos_counts = owner_draft['Position'].value_counts().reset_index()
-                pos_counts.columns = ['Position', 'Count']
-                fig_pos = px.pie(pos_counts, values='Count', names='Position', hole=0.4)
-                fig_pos.update_traces(textinfo='percent+label')
-                st.plotly_chart(fig_pos, use_container_width=True)
-
-        # Performance and Scoring Placeholders
-        elif sub_page == "Performance":
-            st.subheader("Performance Analysis Coming Soon")
-        elif sub_page == "Scoring":
-            st.subheader("Scoring Analysis Coming Soon")
+                p_counts = owner_draft['Position'].value_counts().reset_index()
+                p_counts.columns = ['Position', 'Count']
+                st.plotly_chart(px.pie(p_counts, values='Count', names='Position', hole=0.4), use_container_width=True)
+                
+                sel_p = st.selectbox("Search Position History:", sorted(owner_draft['Position'].unique()))
+                with st.popover(f"🚀 View all {sel_p}s"):
+                    st.dataframe(owner_draft[owner_draft['Position'] == sel_p][['Year', 'Round', 'Pick', 'Player Name', 'Team']].sort_values('Year', ascending=False), hide_index=True)
 
 except Exception as e:
     st.error(f"Sync failed: {e}")
