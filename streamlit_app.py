@@ -227,7 +227,7 @@ try:
             st.title(f"🏆 {selected_owner}: Performance")
             
             # --- UPDATED FORMULA LOGIC (Internal to this tab) ---
-            def refine_score(row, full_data):
+           def refine_score(row, full_data):
                 pos = row.get('Position', 'RB')
                 pts = row.get('Points', 0)
                 ppg = row.get('PPG', 0)
@@ -237,10 +237,10 @@ try:
                 won_champ = str(row.get('Win Championship?', '')).strip().upper() in ['YES', '1', '1.0', 'Y']
 
                 # B1: Absolute (30%)
-                if pos == 'QB': baseline = 330
-                elif pos in ['K', 'DST', 'DEF', 'D/ST']: baseline = 210 # Raised baseline to suppress kickers
-                elif pos == 'TE': baseline = 175
-                else: baseline = 220 # Slightly lowered for RBs to boost Mixon-types
+                if pos == 'QB': baseline = 340
+                elif pos in ['K', 'DST', 'DEF', 'D/ST']: baseline = 220 
+                elif pos == 'TE': baseline = 180
+                else: baseline = 230 
                 abs_score = (pts / baseline) * 30
 
                 # B2: Yearly Dominance (30%)
@@ -248,20 +248,31 @@ try:
                 yearly_max = yearly_pos_data['Points'].max() if not yearly_pos_data.empty else 0
                 rel_score = (pts / yearly_max) * 30 if yearly_max > 0 else abs_score
                 
-                # SPECIAL KICKER PENALTY: Reduce relative impact for low-value positions
+                # POSITION PENALTY: Kickers/DST dominance is worth half as much as Skill dominance
                 if pos in ['K', 'DST', 'DEF', 'D/ST']:
-                    rel_score = rel_score * 0.7 
+                    rel_score = rel_score * 0.4 
 
                 # B3: Value/Maintenance (25%)
-                if rd <= 2: value_score = min(25, (ppg / 19) * 25)
-                else: value_score = min(25, (max(0, voadp) / 65) * 25)
+                if rd <= 2:
+                    value_score = min(25, (ppg / 20) * 25)
+                else:
+                    # HEAVY ROI: Reward late round hits like Kenneth Walker (7th round)
+                    # We boost the VOADP impact for RBs/WRs taken late
+                    multiplier = 1.5 if pos in ['RB', 'WR', 'TE'] else 1.0
+                    value_score = min(25, (max(0, voadp) / 60) * 25 * multiplier)
 
                 # B4: Clutch (15%)
                 clutch_score = min(15, (pip / 0.22) * 15)
                 
                 total = abs_score + rel_score + value_score + clutch_score
                 if pts > 400: total += 10
-                if not won_champ: total = min(99.9, total)
+                
+                # --- THE FINAL POLISH ---
+                if pos in ['K', 'DST', 'DEF', 'D/ST'] and not won_champ:
+                    total = min(78, total) # Cap elite kickers at a high C/low B
+
+                if not won_champ:
+                    total = min(99.9, total)
                 else:
                     if total >= 94: total = 100
                     elif total >= 80: total += 3
