@@ -156,35 +156,65 @@ try:
                     race_counts = valid_players['Race'].value_counts().reset_index()
                     st.plotly_chart(px.pie(race_counts, values='count', names='Race', hole=0.5), use_container_width=True)
 
-        # --- PERFORMANCE ---
+        # --- PERFORMANCE (The Report Card) ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
             
+            # Hall of Fame / Hall of Shame
             hof, hos = st.columns(2)
             with hof:
                 st.success("### ⭐ Draft Hall of Fame")
                 top_picks = owner_draft.sort_values('Success Score', ascending=False).head(5)
                 for _, p in top_picks.iterrows():
                     st.write(f"**{p['Player Name']} ({p['Year']})** - {p['Grade']} ({p['Success Score']})")
+            
             with hos:
                 st.error("### 🗑️ Draft Hall of Shame")
-                # Filter out players with 0 PPG/GP to find real busts vs. missing data
                 real_busts = owner_draft[owner_draft['GP'] > 0].sort_values('Success Score', ascending=True).head(5)
                 for _, p in real_busts.iterrows():
                     st.write(f"**{p['Player Name']} ({p['Year']})** - {p['Grade']} ({p['Success Score']})")
 
             st.divider()
-            st.subheader("Success Score by Round")
-            # Force size to be at least 1 to prevent Plotly size errors
-            owner_draft['bubble_size'] = owner_draft['PPG'].apply(lambda x: max(1, x))
             
-            fig_perf = px.scatter(owner_draft, x="Round", y="Success Score", color="Grade", size="bubble_size", 
-                                   hover_data=["Player Name", "Year"],
-                                   color_discrete_map={"A+":"#00FF00", "A":"#7FFF00", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000"})
+            # Scatter Plot
+            st.subheader("Success Score by Round")
+            owner_draft['bubble_size'] = owner_draft['PPG'].apply(lambda x: max(2, x))
+            fig_perf = px.scatter(
+                owner_draft, x="Round", y="Success Score", color="Grade", 
+                size="bubble_size", hover_data=["Player Name", "Year", "Points"],
+                color_discrete_map={"A+":"#00FF00", "A":"#7FFF00", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000"}
+            )
             st.plotly_chart(fig_perf, use_container_width=True)
 
-            with st.expander("View Full Career Grade Table"):
-                st.dataframe(owner_draft[['Year', 'Round', 'Player Name', 'Position', 'Success Score', 'Grade']].sort_values('Success Score', ascending=False), hide_index=True)
+            # --- DETAILED REVIEW TABLE (With Column Resizing) ---
+            st.subheader("📋 Comprehensive Performance Log")
+            st.caption("Review raw stats to refine Success Score logic.")
+            
+            # Sorting by Success Score to help you see the "A+" picks first
+            review_df = owner_draft[[
+                'Year', 'Round', 'Pick', 'Player Name', 'Position', 
+                'Points', 'PPG', 'GP', 'Success Score', 'Grade'
+            ]].sort_values('Success Score', ascending=False)
+
+            st.dataframe(
+                review_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Year": st.column_config.NumberColumn("Year", format="%d", width="small"),
+                    "Round": st.column_config.NumberColumn("Rd", width="small"),
+                    "Pick": st.column_config.NumberColumn("Pk", width="small"),
+                    "Player Name": st.column_config.TextColumn("Player", width="medium"),
+                    "Position": st.column_config.TextColumn("Pos", width="small"),
+                    "Points": st.column_config.NumberColumn("Total Pts", format="%.1f"),
+                    "PPG": st.column_config.NumberColumn("PPG", format="%.1f"),
+                    "GP": st.column_config.NumberColumn("GP"),
+                    "Success Score": st.column_config.ProgressColumn(
+                        "Score", help="Ultimate Success Formula", min_value=0, max_value=100, format="%.1f"
+                    ),
+                    "Grade": st.column_config.TextColumn("Grade", width="small")
+                }
+            )
 
     # PAGE 2: OWNER STATISTICS
     elif main_page == "Owner Statistics":
