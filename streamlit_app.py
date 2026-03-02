@@ -28,13 +28,11 @@ try:
     # ==========================================
     # PRE-CALCULATING LEAGUE RANKINGS
     # ==========================================
-    # We calculate these for everyone so we can see where the selected owner ranks
-    
-    # Avg Age Ranking
+    # Average Age Ranking
     league_age = draft_df.groupby('Owner')['Age When Drafted'].mean().sort_values()
     age_rank = league_age.index.get_loc(selected_owner) + 1
 
-    # Avg Pick Ranking
+    # Average Draft Pick Ranking (Lower average pick means you drafted earlier on avg)
     league_picks = draft_df.groupby('Owner')['Pick'].mean().sort_values()
     pick_rank = league_picks.index.get_loc(selected_owner) + 1
 
@@ -77,7 +75,7 @@ try:
         title="What pick did you have in the 1st Round?",
         color_discrete_sequence=['#3b82f6']
     )
-    # Reverse Y-axis because Pick 1 is "Better" (higher) than Pick 12
+    # Reverse Y-axis because Pick 1 is visually "Higher" than Pick 12
     fig_slots.update_yaxes(autorange="reversed", title="Pick Number")
     st.plotly_chart(fig_slots, use_container_width=True)
 
@@ -89,11 +87,47 @@ try:
 
     with left_col:
         st.subheader("Most Drafted NFL Teams")
-        # Count all 32 teams from highest to lowest
+        # Get counts for teams this owner has drafted
         team_counts = owner_df['Team'].value_counts().reset_index()
         team_counts.columns = ['NFL Team', 'Count']
         
         fig_teams = px.bar(
             team_counts, 
             y='NFL Team', 
-            x='Count
+            x='Count', 
+            orientation='h',
+            height=600,
+            color='Count',
+            color_continuous_scale='Blues',
+            text='Count'
+        )
+        fig_teams.update_layout(yaxis={'categoryorder':'total ascending'})
+        st.plotly_chart(fig_teams, use_container_width=True)
+
+    with right_col:
+        st.subheader("Most Drafted Positions")
+        pos_counts = owner_df['Position'].value_counts().reset_index()
+        pos_counts.columns = ['Position', 'Count']
+        
+        fig_pos = px.bar(
+            pos_counts, 
+            x='Position', 
+            y='Count',
+            color='Position',
+            text='Count',
+            title="Positional Strategy"
+        )
+        st.plotly_chart(fig_pos, use_container_width=True)
+
+    # ==========================================
+    # DATA SEARCH
+    # ==========================================
+    st.divider()
+    st.subheader("Raw Draft Data")
+    # Clean up display (round the age)
+    display_df = owner_df[['Year', 'Round', 'Pick', 'Player Name', 'Team', 'Position', 'Age When Drafted']].copy()
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+except Exception as e:
+    st.error(f"Error: {e}")
+    st.info("Ensure 'Draft Data GPT (1).xlsx' is in your GitHub folder.")
