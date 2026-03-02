@@ -86,9 +86,9 @@ try:
                 with st.popover("View Players"):
                     st.dataframe(names_df[names_df['Last'] == cl][['Year', 'Player Name', 'Position']], hide_index=True)
 
-            st.divider() # --- DIVIDER 1 ---
+            st.divider()
 
-            # --- SECTION 2: NFL TEAM RELIANCE & DRILL-DOWN ---
+            # --- SECTION 2: NFL TEAM RELIANCE ---
             st.subheader("NFL Team Reliance")
             all_nfl = sorted(draft_df['Team'].unique())
             team_data = owner_draft['Team'].value_counts().reindex(all_nfl, fill_value=0).reset_index()
@@ -106,27 +106,64 @@ try:
                 team_hist = owner_draft[owner_draft['Team'] == sel_team][['Year', 'Round', 'Pick', 'Player Name', 'Position', 'ROI Score']].sort_values('Year', ascending=False)
                 st.dataframe(team_hist, hide_index=True, use_container_width=True)
 
-            st.divider() # --- DIVIDER 2 (New) ---
+            st.divider()
 
-            # --- SECTION 3: ROUND BY ROUND ANALYSIS (New Interactive) ---
+            # --- SECTION 3: ROUND BY ROUND ANALYSIS ---
             st.subheader("Round-by-Round Breakdown")
             available_rounds = sorted(owner_draft['Round'].unique())
             selected_round = st.select_slider("Slide to Toggle Round", options=available_rounds)
-            
             round_df = owner_draft[owner_draft['Round'] == selected_round]
             
             r_col1, r_col2 = st.columns([1, 2])
             with r_col1:
-                st.write(f"#### Round {selected_round} Stats")
                 st.metric("Picks Made", len(round_df))
-                st.metric("Avg PPG in Round", f"{round_df['PPG'].mean():.1f}")
+                st.metric("Avg PPG", f"{round_df['PPG'].mean():.1f}")
             with r_col2:
-                st.write(f"#### Round {selected_round} Personnel")
                 st.dataframe(round_df[['Year', 'Pick', 'Player Name', 'Position', 'Team']], hide_index=True, use_container_width=True)
 
-            st.divider() # --- DIVIDER 3 (New) ---
+            st.divider()
 
-            # --- SECTION 4: REPEATS & POSITIONS ---
+            # --- SECTION 4: DEMOGRAPHICS (Birth Month & Race) ---
+            st.subheader("Player Demographics")
+            demo_left, demo_right = st.columns(2)
+
+            with demo_left:
+                st.write("#### 🎂 Birth Month Frequency")
+                # Grouping by month
+                month_order = ['January', 'February', 'March', 'April', 'May', 'June', 
+                               'July', 'August', 'September', 'October', 'November', 'December']
+                month_counts = owner_draft['Birth Month'].value_counts().reindex(month_order, fill_value=0).reset_index()
+                month_counts.columns = ['Month', 'Picks']
+                
+                fig_month = px.bar(month_counts, x='Picks', y='Month', orientation='h', 
+                                   color='Picks', color_continuous_scale='Sunset')
+                fig_month.update_layout(showlegend=False, coloraxis_showscale=False)
+                st.plotly_chart(fig_month, use_container_width=True)
+
+                # Month Drill-down
+                sel_month = st.selectbox("View players born in:", month_order)
+                with st.popover(f"🎈 View {sel_month} Birthdays"):
+                    m_df = owner_draft[owner_draft['Birth Month'] == sel_month][['Year', 'Player Name', 'Position', 'Team']]
+                    st.dataframe(m_df.sort_values('Year', ascending=False), hide_index=True)
+
+            with demo_right:
+                st.write("#### 🧬 Racial Breakdown")
+                race_counts = owner_draft['Race'].value_counts().reset_index()
+                race_counts.columns = ['Race', 'Count']
+                
+                fig_race = px.pie(race_counts, values='Count', names='Race', hole=0.5)
+                fig_race.update_traces(textinfo='percent+label', textfont_size=14)
+                st.plotly_chart(fig_race, use_container_width=True)
+
+                # Race Drill-down
+                sel_race = st.selectbox("View players by race:", sorted(owner_draft['Race'].unique()))
+                with st.popover(f"🧬 View {sel_race} Players"):
+                    r_df = owner_draft[owner_draft['Race'] == sel_race][['Year', 'Player Name', 'Position', 'Team']]
+                    st.dataframe(r_df.sort_values('Year', ascending=False), hide_index=True)
+
+            st.divider()
+
+            # --- SECTION 5: REPEATS & POSITIONS ---
             col_freq, col_pos = st.columns(2)
             with col_freq:
                 st.subheader("Frequent Faces")
