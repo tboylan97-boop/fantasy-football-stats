@@ -206,7 +206,7 @@ try:
                 p_counts.columns = ['Position', 'count']
                 st.plotly_chart(px.pie(p_counts, values='count', names='Position', hole=0.4), use_container_width=True)
 
-     # --- PERFORMANCE (Compact & Bold) ---
+     # --- PERFORMANCE (Clean HTML Styling) ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
             
@@ -215,19 +215,30 @@ try:
                 st.success("### ⭐ Draft Hall of Fame")
                 top_5 = owner_draft.sort_values('Success Score', ascending=False).head(5)
                 for i, (_, p) in enumerate(top_5.iterrows(), 1):
-                    champ_icon = "🏆" if str(p.get('Win Championship?')).strip().upper() in ['YES', '1', '1.0', 'Y'] else ""
-                    # Championship points check
-                    champ_pts = p.get('Championship points', 0)
-                    champ_text = f" | {champ_pts:.0f} Final Pts" if champ_pts > 0 else ""
+                    champ = " 🏆" if str(p.get('Win Championship?')).strip().upper() in ['YES', '1', '1.0', 'Y'] else ""
+                    c_pts = p.get('Championship points', 0)
+                    c_text = f" | {c_pts:.1f} Final Pts" if c_pts > 0 else ""
                     
-                    st.markdown(f"**#{i} {p['Player Name']} ({p['Year']}) {champ_icon} Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG{champ_text}**")
+                    # HTML for larger font and specific bolding
+                    st.markdown(f"""
+                        <div style="font-size:18px; line-height:1.6;">
+                            <b>#{i} {p['Player Name']} ({p['Year']}){champ}</b> 
+                            Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG{c_text}
+                        </div>
+                    """, unsafe_allow_html=True)
             
             with hos:
                 st.error("### 🗑️ Draft Hall of Shame")
                 busts = owner_draft[owner_draft['GP'] > 0].sort_values('Success Score', ascending=True).head(5)
                 for i, (_, p) in enumerate(busts.iterrows(), 1):
                     v_burn = abs(p['VOADP']) if p['VOADP'] < 0 else 0
-                    st.markdown(f"**#{i} {p['Player Name']} ({p['Year']}) Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG | -{v_burn:.0f} Value**")
+                    
+                    st.markdown(f"""
+                        <div style="font-size:18px; line-height:1.6;">
+                            <b>#{i} {p['Player Name']} ({p['Year']})</b> 
+                            Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG | -{v_burn:.0f} Value
+                        </div>
+                    """, unsafe_allow_html=True)
 
             st.divider()
             
