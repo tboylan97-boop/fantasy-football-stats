@@ -32,7 +32,7 @@ def load_data():
     return draft_df, history_df
 
 # ==========================================
-# 3. ULTIMATE KFL SUCCESS FORMULA (Championship Gated)
+# 3. ULTIMATE KFL SUCCESS FORMULA (V2 - Positional Balance)
 # ==========================================
 def calculate_success_score(row):
     pos = row.get('Position', 'RB')
@@ -41,54 +41,55 @@ def calculate_success_score(row):
     voadp = row.get('VOADP', 0)
     pip = row.get('% of PIP', 0)
     rd = row.get('Round', 1)
-    
-    # NEW: Check for Championship Win
-    # Assumes column 'Win Championship?' contains 'Yes', 'YES', or 1
     won_champ = str(row.get('Win Championship?', '')).strip().upper() in ['YES', '1', '1.0', 'Y']
 
-    # A. PRODUCTION SCORE (60% Weight)
-    if pos == 'QB':
-        baseline = 320
-    elif pos in ['TE', 'K', 'DST', 'DEF']:
-        baseline = 160
-    else:
-        baseline = 220
+    # Production Baselines (Refined)
+    if pos == 'QB': 
+        baseline = 330 # High bar for QBs
+    elif pos in ['K', 'DST', 'DEF', 'D/ST']: 
+        baseline = 195 # RAISED: Kickers need ~12 PPG to be considered "Success"
+    elif pos == 'TE':
+        baseline = 175 # TEs have a lower ceiling
+    else: 
+        baseline = 225 # RBs and WRs
+
+    # Production Score (60% Weight)
     prod_raw = (pts / baseline) * 60
     
-    # B. DRAFT VALUE / MAINTENANCE (25% Weight)
+    # Value / Maintenance (25% Weight)
     if rd <= 2:
-        value_score = min(25, (ppg / 18) * 25)
+        # Maintenance: Studs must maintain ~19 PPG for full credit
+        value_score = min(25, (ppg / 19) * 25)
     else:
-        value_score = min(25, (max(0, voadp) / 60) * 25)
+        # ROI: Late rounders must move up ~65 spots for full credit
+        value_score = min(25, (max(0, voadp) / 65) * 25)
 
-    # C. CLUTCH FACTOR (15% Weight)
+    # Clutch (15% Weight)
     clutch_score = min(15, (pip / 0.22) * 15)
-
+    
     total = prod_raw + value_score + clutch_score
     
     # Legend Boost for 400+ points
-    if pts > 400:
-        total += 10
+    if pts > 400: total += 10
     
     # --- THE CHAMPIONSHIP GATE ---
     if not won_champ:
-        # Cap the score at 97 for non-champions
-        total = min(97, total)
+        total = min(99.9, total) # Cannot hit 100 without a ring
     else:
-        # Bonus for winning it all
-        if total >= 90:
-            total = min(100, total + 3)
+        if total >= 94: total = 100 # If elite and won champ, auto 100 (S)
+        elif total >= 80: total += 3 # Smaller boost for champions
 
     return round(total, 1)
 
 def get_grade(score):
-    if score >= 98: return "S"   # RESERVED FOR CHAMPIONS
-    if score >= 90: return "A+"
-    if score >= 80: return "A"
-    if score >= 70: return "B"
-    if score >= 60: return "C"
-    if score >= 50: return "D"
-    return "F"
+    if score >= 100: return "S" 
+    if score >= 95: return "A+"
+    if score >= 90: return "A"
+    if score >= 80: return "B"
+    if score >= 70: return "C"
+    if score >= 60: return "D"
+    if score >= 11: return "F"
+    return "F-" # Reserved for the absolute zero-impact picks
 
 # Helper for Name Logic
 def get_clean_names(name):
