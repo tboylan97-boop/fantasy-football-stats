@@ -9,6 +9,7 @@ st.set_page_config(page_title="KFL Archive", layout="wide")
 # 2. DATA LOADING & CLEANING
 @st.cache_data
 def load_data():
+    # Use .xlsx as per repository setup
     draft_df = pd.read_excel('Draft Data GPT (1).xlsx')
     try:
         history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
@@ -21,7 +22,9 @@ def load_data():
         if pd.isna(val) or val == '#DIV/0!': return 0.0
         if isinstance(val, str):
             val = val.replace('%', '').strip()
-        try: return float(val) / 100.0 if float(val) > 1 else float(val)
+        try: 
+            num = float(val)
+            return num / 100.0 if num > 1 else num
         except: return 0.0
 
     if '% of PIP' in draft_df.columns:
@@ -110,7 +113,7 @@ def refine_score(row, full_data):
 try:
     draft_df, history_df = load_data()
     
-    # Calculate Scores for league upfront
+    # Pre-calculate Scores league-wide
     draft_df['Success Score'] = draft_df.apply(lambda r: refine_score(r, draft_df), axis=1)
     draft_df['Grade'] = draft_df['Success Score'].apply(get_grade)
     draft_df['Display_PPG'] = draft_df['PPG'].clip(lower=0) + 2
@@ -140,7 +143,7 @@ try:
     if main_page == "Draft Room":
         sub_page = st.sidebar.radio("SUB-MENU", ["Dashboard", "Archetype", "Performance", "Scoring"])
         
-        # --- DASHBOARD ---
+        # --- SUB-TAB 1: DASHBOARD ---
         if sub_page == "Dashboard":
             st.title(f"📈 {selected_owner}: Dashboard")
             c1, c2, c3 = st.columns(3)
@@ -152,18 +155,8 @@ try:
             fig_slots = px.bar(slots[slots['Owner'] == selected_owner], x='Year', y='Pick', text='Pick', title="Round 1 Draft Slot History")
             fig_slots.update_yaxes(autorange="reversed", dtick=1)
             st.plotly_chart(fig_slots, use_container_width=True)
-            
-            st.divider()
-            st.header("🌐 League-Wide Performance Audit")
-            fig_league = px.scatter(draft_df, x="Round", y="Success Score", color="Grade", 
-                                   size="Display_PPG",
-                                   hover_data=["Player Name", "Year", "Owner", "Position"], 
-                                   title="Full League History: Distribution of Success Scores",
-                                   color_discrete_map={"S":"#FFD700", "A+":"#00FF00", "A":"#32CD32", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000", "F-":"#8B0000"},
-                                   template="plotly_dark")
-            st.plotly_chart(fig_league, use_container_width=True)
 
-        # --- ARCHETYPE (LOCKED CODE) ---
+        # --- SUB-TAB 2: ARCHETYPE (LOCKED CODE) ---
         elif sub_page == "Archetype":
             st.title(f"🧬 {selected_owner}: Draft Archetype")
             st.subheader("Manager Tendencies")
