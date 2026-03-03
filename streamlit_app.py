@@ -110,7 +110,7 @@ def refine_score(row, full_data):
 try:
     draft_df, history_df = load_data()
     
-    # NEW: Calculate Scores for the ENTIRE league upfront
+    # Calculate Scores for league upfront
     draft_df['Success Score'] = draft_df.apply(lambda r: refine_score(r, draft_df), axis=1)
     draft_df['Grade'] = draft_df['Success Score'].apply(get_grade)
     draft_df['Display_PPG'] = draft_df['PPG'].clip(lower=0) + 2
@@ -122,14 +122,25 @@ try:
     st.sidebar.divider()
     selected_owner = st.sidebar.selectbox("Select Manager", all_owners)
     
-    # Filter for the selected owner for specific tabs
     owner_draft = draft_df[draft_df['Owner'] == selected_owner].copy()
     owner_history = history_df[history_df['Owner'] == selected_owner]
+
+    # Global Config for Table Progress Bars
+    log_config = {
+        "Year": st.column_config.NumberColumn("Year", format="%d"),
+        "Success Score": st.column_config.ProgressColumn(
+            "Score", 
+            help="Draft success score (0-100)",
+            format="%.1f",
+            min_value=0,
+            max_value=100
+        )
+    }
 
     if main_page == "Draft Room":
         sub_page = st.sidebar.radio("SUB-MENU", ["Dashboard", "Archetype", "Performance", "Scoring"])
         
-        # --- SUB-TAB 1: DASHBOARD ---
+        # --- DASHBOARD ---
         if sub_page == "Dashboard":
             st.title(f"📈 {selected_owner}: Dashboard")
             c1, c2, c3 = st.columns(3)
@@ -137,18 +148,13 @@ try:
             c2.metric("Draft Years", owner_draft['Year'].nunique())
             c3.metric("Avg Success Score", f"{owner_draft['Success Score'].mean():.1f}")
             
-            # Existing Draft Slot Chart
             slots = draft_df[draft_df['Round'] == 1].groupby(['Owner', 'Year'])['Pick'].first().reset_index()
             fig_slots = px.bar(slots[slots['Owner'] == selected_owner], x='Year', y='Pick', text='Pick', title="Round 1 Draft Slot History")
             fig_slots.update_yaxes(autorange="reversed", dtick=1)
             st.plotly_chart(fig_slots, use_container_width=True)
             
             st.divider()
-            
-            # NEW: LEAGUE-WIDE STRESS TEST CHART
             st.header("🌐 League-Wide Performance Audit")
-            st.write("Every player drafted in KFL history, graded by the current formula logic.")
-            
             fig_league = px.scatter(draft_df, x="Round", y="Success Score", color="Grade", 
                                    size="Display_PPG",
                                    hover_data=["Player Name", "Year", "Owner", "Position"], 
@@ -157,7 +163,7 @@ try:
                                    template="plotly_dark")
             st.plotly_chart(fig_league, use_container_width=True)
 
-        # --- SUB-TAB 2: ARCHETYPE ---
+        # --- ARCHETYPE (LOCKED CODE) ---
         elif sub_page == "Archetype":
             st.title(f"🧬 {selected_owner}: Draft Archetype")
             st.subheader("Manager Tendencies")
@@ -200,16 +206,26 @@ try:
             st.subheader("Player Demographics")
             demo_l, demo_r = st.columns(2)
             with demo_l:
+                st.write("#### 🎂 Birth Month Frequency")
                 months_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
                 m_counts = valid_players['Birth Month'].value_counts().reindex(months_order, fill_value=0).reset_index()
                 m_counts.columns = ['Birth Month', 'count']
                 st.plotly_chart(px.bar(m_counts, x='count', y='Birth Month', orientation='h', color='count', color_continuous_scale='Sunset'), use_container_width=True)
             with demo_r:
+                st.write("#### 🧬 Racial Breakdown")
                 race_counts = valid_players['Race'].value_counts().reset_index()
                 race_counts.columns = ['Race', 'count']
                 st.plotly_chart(px.pie(race_counts, values='count', names='Race', hole=0.5), use_container_width=True)
+            st.divider()
+            st.subheader("Position Strategy")
+            col_rep, col_p = st.columns(2)
+            with col_rep:
+                st.write("#### Frequent Faces")
+                st.dataframe(owner_draft['Player Name'].value_counts().reset_index().rename(columns={'index':'Player','Player Name':'Drafted'}), use_container_width=True, hide_index=True)
+            with col_p:
+                st.plotly_chart(px.pie(owner_draft['Position'].value_counts().reset_index(), values='Position', names='index', hole=0.4), use_container_width=True)
 
-        # --- SUB-TAB 3: PERFORMANCE ---
+        # --- PERFORMANCE ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
             hof, hos = st.columns(2)
@@ -218,10 +234,10 @@ try:
                 top_5 = owner_draft.sort_values('Success Score', ascending=False).head(5)
                 for i, (_, p) in enumerate(top_5.iterrows(), 1):
                     won = str(p.get('Win Championship?')).strip().upper() in ['YES', '1', '1.0', 'Y']
-                    champ_icon = "| 🏆 |" if won else "|"
+                    champ_bracket = "| 🏆 |" if won else "|"
                     c_pts = p.get('Championship points', 0)
                     c_text = f" | {c_pts:.1f} Final Pts" if won and c_pts > 0 else ""
-                    st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) {champ_icon}</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG{c_text}</div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) {champ_bracket}</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG{c_text}</div>""", unsafe_allow_html=True)
             with hos:
                 st.error("### 🗑️ Draft Hall of Shame")
                 busts = owner_draft[owner_draft['GP'] > 0].sort_values('Success Score', ascending=True).head(5)
@@ -236,9 +252,14 @@ try:
                                    color_discrete_map={"S":"#FFD700", "A+":"#00FF00", "A":"#32CD32", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000", "F-":"#8B0000"})
             st.plotly_chart(fig_perf, use_container_width=True)
             st.subheader("📋 Performance Review Log")
-            st.dataframe(owner_draft[['Year', 'Round', 'Player Name', 'Position', 'Points', 'PPG', 'GP', 'Success Score', 'Grade']].sort_values('Success Score', ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(
+                owner_draft[['Year', 'Round', 'Player Name', 'Position', 'Points', 'PPG', 'GP', 'Success Score', 'Grade']].sort_values('Success Score', ascending=False), 
+                use_container_width=True, 
+                hide_index=True,
+                column_config=log_config
+            )
 
-        # --- SUB-TAB 4: SCORING ---
+        # --- SCORING ---
         elif sub_page == "Scoring":
             st.title(f"🎯 {selected_owner}: Scoring Audit")
             col_pts, col_eff = st.columns(2)
@@ -257,7 +278,12 @@ try:
             st.dataframe(owner_draft.sort_values('% of PIP', ascending=False).head(10)[['Year', 'Player Name', '% of PIP', 'Points']], hide_index=True, use_container_width=True)
             st.divider()
             st.subheader("5. High-Water Marks (Record Book)")
-            st.dataframe(owner_draft[['Year', 'Player Name', 'Position', 'Points', 'PPG', 'Grade']].sort_values('Points', ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(
+                owner_draft[['Year', 'Player Name', 'Position', 'Points', 'PPG', 'Grade', 'Success Score']].sort_values('Points', ascending=False), 
+                use_container_width=True, 
+                hide_index=True,
+                column_config=log_config
+            )
 
     elif main_page == "Owner Statistics":
         st.title(f"📊 {selected_owner}: Career Stats")
