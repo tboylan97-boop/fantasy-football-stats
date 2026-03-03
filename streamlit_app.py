@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import numpy as np
 
 # 1. PAGE SETUP
 st.set_page_config(page_title="KFL Archive", layout="wide")
@@ -12,7 +13,6 @@ def load_data():
     history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
     draft_df.columns = draft_df.columns.str.strip()
     
-    # Aggressive Cleaning for Demographics
     if 'Birthday' in draft_df.columns:
         draft_df['Birthday'] = pd.to_datetime(draft_df['Birthday'], errors='coerce')
         draft_df['Birth Month'] = draft_df['Birthday'].dt.month_name()
@@ -33,12 +33,12 @@ def load_data():
 
 # 3. ANALYTICS FORMULA HELPERS
 def get_grade(score):
-    if score >= 100: return "S" 
-    if score >= 95: return "A+"
-    if score >= 90: return "A"
-    if score >= 80: return "B"
-    if score >= 70: return "C"
-    if score >= 60: return "D"
+    if score >= 98: return "S" 
+    if score >= 90: return "A+"
+    if score >= 85: return "A"
+    if score >= 75: return "B"
+    if score >= 65: return "C"
+    if score >= 55: return "D"
     if score >= 11: return "F"
     return "F-"
 
@@ -61,34 +61,26 @@ def refine_score(row, full_data):
     rd = row.get('Round', 1)
     won_champ = str(row.get('Win Championship?', '')).strip().upper() in ['YES', '1', '1.0', 'Y']
 
-    # B1: Absolute Production (40% - vs All-Time Baseline)
     if pos == 'QB': baseline = 330
     elif pos in ['K', 'DST', 'DEF', 'D/ST']: baseline = 215
     elif pos == 'TE': baseline = 175
     else: baseline = 225
     abs_score = (pts / baseline) * 40
 
-    # B2: Yearly Dominance (20% - vs Position Top Scorer)
     yearly_pos_data = full_data[(full_data['Year'] == row['Year']) & (full_data['Position'] == pos)]
     yearly_max = yearly_pos_data['Points'].max() if not yearly_pos_data.empty else 0
     rel_score = (pts / yearly_max) * 20 if yearly_max > 0 else (pts / baseline) * 20
     
-    # B3: Value/Maintenance (25%)
     if rd <= 2:
         value_score = min(25, (ppg / 19) * 25)
     else:
         multiplier = 1.3 if pos in ['RB', 'WR', 'TE'] else 1.0
         value_score = min(25, (max(0, voadp) / 65) * 25 * multiplier)
 
-    # B4: Clutch (15%)
     clutch_score = min(15, (pip / 0.22) * 15)
-    
     total = abs_score + rel_score + value_score + clutch_score
     if pts > 400: total += 10
-    
-    if pos in ['K', 'DST', 'DEF', 'D/ST'] and not won_champ:
-        total = min(79, total)
-
+    if pos in ['K', 'DST', 'DEF', 'D/ST'] and not won_champ: total = min(79, total)
     if not won_champ: total = min(99.9, total)
     else:
         if total >= 94: total = 100
@@ -113,7 +105,7 @@ try:
     if main_page == "Draft Room":
         sub_page = st.sidebar.radio("SUB-MENU", ["Dashboard", "Archetype", "Performance", "Scoring"])
         
-        # --- DASHBOARD ---
+        # --- SUB-TAB 1: DASHBOARD ---
         if sub_page == "Dashboard":
             st.title(f"📈 {selected_owner}: Dashboard")
             c1, c2, c3 = st.columns(3)
@@ -125,18 +117,15 @@ try:
             fig_slots.update_yaxes(autorange="reversed", dtick=1)
             st.plotly_chart(fig_slots, use_container_width=True)
 
-        # --- ARCHETYPE ---
+        # --- SUB-TAB 2: ARCHETYPE ---
         elif sub_page == "Archetype":
             st.title(f"🧬 {selected_owner}: Draft Archetype")
-            
             st.subheader("Manager Tendencies")
             col_age, col_first, col_last = st.columns(3)
             league_age = draft_df.groupby('Owner')['Age When Drafted'].mean().sort_values()
             age_rank = league_age.index.get_loc(selected_owner) + 1
-            
             valid_players = owner_draft[~owner_draft['Position'].isin(['DST', 'DEF', 'D/ST', 'DEFENSE', 'D'])]
             valid_players[['First', 'Last']] = valid_players['Player Name'].apply(lambda x: pd.Series(get_clean_names(x)))
-
             with col_age:
                 st.metric("Avg Player Age", f"{owner_draft['Age When Drafted'].mean():.1f}")
                 with st.popover(f"Rank: {age_rank}/{len(league_age)}"):
@@ -151,23 +140,16 @@ try:
                 st.metric("Common Last Name", cl)
                 with st.popover(f"View {cl}s"):
                     st.dataframe(valid_players[valid_players['Last'] == cl][['Year', 'Player Name', 'Position', 'Round']], hide_index=True)
-
             st.divider()
-            
             st.subheader("NFL Team Reliance")
             team_counts = owner_draft['Team'].value_counts().reset_index()
             team_counts.columns = ['Team', 'Picks']
-            st.plotly_chart(px.bar(team_counts.sort_values('Picks', ascending=False), 
-                                   x='Team', y='Picks', text='Picks', 
-                                   title=f"Distribution of Picks by NFL Team",
-                                   color='Picks', color_continuous_scale='Blues', height=400), use_container_width=True)
+            st.plotly_chart(px.bar(team_counts.sort_values('Picks', ascending=False), x='Team', y='Picks', text='Picks', title=f"Distribution of Picks by NFL Team", color='Picks', color_continuous_scale='Blues', height=400), use_container_width=True)
             active_teams = sorted(owner_draft[owner_draft['Team'] != 'N/A']['Team'].unique())
             sel_team = st.selectbox("Search Team History:", active_teams)
             with st.popover(f"📋 View all {sel_team} Picks"):
                 st.dataframe(owner_draft[owner_draft['Team'] == sel_team][['Year', 'Round', 'Pick', 'Player Name', 'Position']].sort_values('Year', ascending=False), hide_index=True)
-
             st.divider()
-
             st.subheader("Round-by-Round Breakdown")
             available_rounds = sorted(owner_draft['Round'].unique())
             selected_round = st.select_slider("Toggle Round to see picks:", options=available_rounds)
@@ -176,9 +158,7 @@ try:
             r_c1.metric("Picks Made", len(round_df))
             r_c1.metric("Avg PPG", f"{round_df['PPG'].mean():.1f}")
             r_c2.dataframe(round_df[['Year', 'Pick', 'Player Name', 'Position', 'Team']], hide_index=True, use_container_width=True)
-
             st.divider()
-
             st.subheader("Player Demographics")
             demo_l, demo_r = st.columns(2)
             with demo_l:
@@ -186,9 +166,7 @@ try:
                 months_order = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
                 m_counts = valid_players['Birth Month'].value_counts().reindex(months_order, fill_value=0).reset_index()
                 m_counts.columns = ['Birth Month', 'count']
-                st.plotly_chart(px.bar(m_counts, x='count', y='Birth Month', orientation='h', 
-                                       title="Drafted Players by Birth Month",
-                                       color='count', color_continuous_scale='Sunset'), use_container_width=True)
+                st.plotly_chart(px.bar(m_counts, x='count', y='Birth Month', orientation='h', title="Drafted Players by Birth Month", color='count', color_continuous_scale='Sunset'), use_container_width=True)
                 sel_month = st.selectbox("View players born in:", [m for m in months_order if m in valid_players['Birth Month'].unique()])
                 with st.popover(f"🎈 View {sel_month} Birthdays"):
                     st.dataframe(valid_players[valid_players['Birth Month'] == sel_month][['Year', 'Player Name', 'Position', 'Round']], hide_index=True)
@@ -196,14 +174,11 @@ try:
                 st.write("#### 🧬 Racial Breakdown")
                 race_counts = valid_players['Race'].value_counts().reset_index()
                 race_counts.columns = ['Race', 'count']
-                st.plotly_chart(px.pie(race_counts, values='count', names='Race', hole=0.5, 
-                                       title="Drafted Players by Race"), use_container_width=True)
+                st.plotly_chart(px.pie(race_counts, values='count', names='Race', hole=0.5, title="Drafted Players by Race"), use_container_width=True)
                 sel_race = st.selectbox("View players by race:", sorted(valid_players['Race'].unique()))
                 with st.popover(f"🧬 View {sel_race} Players"):
                     st.dataframe(valid_players[valid_players['Race'] == sel_race][['Year', 'Player Name', 'Position', 'Round']], hide_index=True)
-
             st.divider()
-
             st.subheader("Position Strategy")
             col_rep, col_p = st.columns(2)
             with col_rep:
@@ -215,13 +190,12 @@ try:
                 st.write("#### Strategy Tally")
                 p_counts = owner_draft['Position'].value_counts().reset_index()
                 p_counts.columns = ['Position', 'count']
-                st.plotly_chart(px.pie(p_counts, values='count', names='Position', hole=0.4, 
-                                       title="Picks by Position"), use_container_width=True)
+                st.plotly_chart(px.pie(p_counts, values='count', names='Position', hole=0.4, title="Picks by Position"), use_container_width=True)
                 sel_p = st.selectbox("Search Position History:", sorted(owner_draft['Position'].unique()))
                 with st.popover(f"🚀 View all {sel_p}s"):
                     st.dataframe(owner_draft[owner_draft['Position'] == sel_p][['Year', 'Round', 'Pick', 'Player Name', 'Team']].sort_values('Year', ascending=False), hide_index=True)
 
-        # --- PERFORMANCE ---
+        # --- SUB-TAB 3: PERFORMANCE ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
             hof, hos = st.columns(2)
@@ -240,15 +214,91 @@ try:
                 for i, (_, p) in enumerate(busts.iterrows(), 1):
                     v_burn = abs(p['VOADP']) if p['VOADP'] < 0 else 0
                     st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) |</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG | -{v_burn:.0f} Value</div>""", unsafe_allow_html=True)
-            
             st.divider()
             owner_draft['bubble_size'] = owner_draft['PPG'].apply(lambda x: max(2, x))
-            fig_perf = px.scatter(owner_draft, x="Round", y="Success Score", color="Grade", size="bubble_size", hover_data=["Player Name", "Year", "Points", "Position"], 
-                                   color_discrete_map={"S":"#FFD700", "A+":"#00FF00", "A":"#32CD32", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000", "F-":"#8B0000"})
+            fig_perf = px.scatter(owner_draft, x="Round", y="Success Score", color="Grade", size="bubble_size", hover_data=["Player Name", "Year", "Points", "Position"], color_discrete_map={"S":"#FFD700", "A+":"#00FF00", "A":"#32CD32", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000", "F-":"#8B0000"})
             st.plotly_chart(fig_perf, use_container_width=True)
             st.subheader("📋 Performance Review Log")
             review_df = owner_draft[['Year', 'Round', 'Pick', 'Player Name', 'Position', 'Points', 'PPG', 'GP', 'Success Score', 'Grade']].sort_values('Success Score', ascending=False)
             st.dataframe(review_df, use_container_width=True, hide_index=True, column_config={"Year": st.column_config.NumberColumn("Year", format="%d", width="small"), "Success Score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%.1f")})
+
+        # --- SUB-TAB 4: SCORING (NEW IN-DEPTH AUDIT) ---
+        elif sub_page == "Scoring":
+            st.title(f"🎯 {selected_owner}: Scoring Audit")
+            
+            # 1 & 2: Position & Draft Capital
+            col_pts, col_eff = st.columns(2)
+            with col_pts:
+                st.subheader("1. Point Source Breakdown")
+                pos_sum = owner_draft.groupby('Position')['Points'].sum().reset_index().sort_values('Points', ascending=False)
+                st.plotly_chart(px.pie(pos_sum, values='Points', names='Position', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel), use_container_width=True)
+                
+                sel_p_score = st.selectbox("Explore Position Totals:", pos_sum['Position'].unique())
+                with st.popover(f"📊 View {sel_p_score} Leaders"):
+                    p_leaders = owner_draft[owner_draft['Position'] == sel_p_score].sort_values('Points', ascending=False)
+                    st.dataframe(p_leaders[['Year', 'Player Name', 'Points', 'Grade']], hide_index=True)
+
+            with col_eff:
+                st.subheader("2. Draft Capital Efficiency")
+                rd_eff = owner_draft.groupby('Round')['Points'].mean().reset_index()
+                st.plotly_chart(px.bar(rd_eff, x='Round', y='Points', text_auto='.0f', title="Avg Points per Round", color='Points', color_continuous_scale='Viridis'), use_container_width=True)
+                
+                sel_rd = st.selectbox("Explore Round Value:", sorted(owner_draft['Round'].unique()))
+                with st.popover(f"💎 View Round {sel_rd} Stars"):
+                    rd_stars = owner_draft[owner_draft['Round'] == sel_rd].sort_values('Points', ascending=False)
+                    st.dataframe(rd_stars[['Year', 'Player Name', 'Points', 'Success Score']], hide_index=True)
+
+            st.divider()
+
+            # 3. Total Drafted Points Trend
+            st.subheader("3. Total Drafted Points Trend")
+            trend_mode = st.radio("Refine Trend By:", ["Overall", "By Position"], horizontal=True)
+            
+            if trend_mode == "Overall":
+                trend_df = owner_draft.groupby('Year')['Points'].sum().reset_index()
+                fig_trend = px.line(trend_df, x='Year', y='Points', markers=True, title="Career Drafted Points Trend")
+                # Consistency Score (CV = std/mean) - Lower is better, but we'll flip it for 0-100
+                cv = trend_df['Points'].std() / trend_df['Points'].mean() if len(trend_df) > 1 else 0
+                c_score = max(0, 100 - (cv * 100))
+                st.metric("Overall Consistency Score", f"{c_score:.1f}/100")
+            else:
+                sel_trend_pos = st.selectbox("Select Position:", sorted(owner_draft['Position'].unique()))
+                trend_df = owner_draft[owner_draft['Position'] == sel_trend_pos].groupby('Year')['Points'].sum().reset_index()
+                fig_trend = px.line(trend_df, x='Year', y='Points', markers=True, title=f"{sel_trend_pos} Career Trend")
+                cv = trend_df['Points'].std() / trend_df['Points'].mean() if len(trend_df) > 1 else 0
+                c_score = max(0, 100 - (cv * 100))
+                st.metric(f"{sel_trend_pos} Consistency Score", f"{c_score:.1f}/100")
+            
+            st.plotly_chart(fig_trend, use_container_width=True)
+
+            st.divider()
+
+            # 4 & 5: Playoff Power
+            st.subheader("4 & 5. Playoff Dominance Audit")
+            p_col1, p_col2 = st.columns(2)
+            
+            # side-by-side PPG
+            reg_ppg = owner_draft['PPG'].mean()
+            # Approximation of Playoff PPG using PIP and Points
+            playoff_total = owner_draft['Points'].sum() * (owner_draft['% of PIP'].mean())
+            playoff_ppg = (playoff_total / owner_draft['GP'].sum()) * 3 # Adjusting for 3-week playoff window
+            
+            with p_col1:
+                st.write("#### Regular Season vs. Playoffs")
+                st.metric("Career Avg PPG", f"{reg_ppg:.1f}")
+                st.metric("Clutch Performance Index", f"{playoff_ppg:.1f}", delta=f"{(playoff_ppg - reg_ppg):.1f} vs Avg")
+
+            with p_col2:
+                st.write("#### ⚡ Clutch Multipliers (% of PIP)")
+                clutch_leaders = owner_draft.sort_values('% of PIP', ascending=False).head(10)
+                st.dataframe(clutch_leaders[['Year', 'Player Name', 'Position', '% of PIP', 'Points']], hide_index=True)
+
+            st.divider()
+
+            # 6. High-Water Marks
+            st.subheader("6. High-Water Marks (The Career Record Book)")
+            leaderboard = owner_draft[['Year', 'Player Name', 'Position', 'Points', 'PPG', 'Grade']].sort_values('Points', ascending=False)
+            st.dataframe(leaderboard, use_container_width=True, hide_index=True)
 
     elif main_page == "Owner Statistics":
         st.title(f"📊 {selected_owner}: Career Stats")
