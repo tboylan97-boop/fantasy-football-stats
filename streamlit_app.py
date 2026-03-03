@@ -9,7 +9,6 @@ st.set_page_config(page_title="KFL Archive", layout="wide")
 # 2. DATA LOADING & CLEANING
 @st.cache_data
 def load_data():
-    # Reverting to .xlsx as per repository setup
     draft_df = pd.read_excel('Draft Data GPT (1).xlsx')
     try:
         history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
@@ -18,7 +17,6 @@ def load_data():
 
     draft_df.columns = draft_df.columns.str.strip()
     
-    # Cleaning Percentage and Numeric Columns
     def clean_pct_val(val):
         if pd.isna(val) or val == '#DIV/0!': return 0.0
         if isinstance(val, str):
@@ -29,7 +27,6 @@ def load_data():
     if '% of PIP' in draft_df.columns:
         draft_df['% of PIP'] = draft_df['% of PIP'].apply(clean_pct_val)
 
-    # Demographic Cleaning
     if 'Birthday' in draft_df.columns:
         draft_df['Birthday'] = pd.to_datetime(draft_df['Birthday'], errors='coerce')
         draft_df['Birth Month'] = draft_df['Birthday'].dt.month_name()
@@ -78,20 +75,16 @@ def refine_score(row, full_data):
     rd = row.get('Round', 1)
     won_champ = str(row.get('Win Championship?', '')).strip().upper() in ['YES', '1', '1.0', 'Y']
 
-    # B1: Absolute Production (40% - vs All-Time Baseline)
     if pos == 'QB': baseline = 330
     elif pos in ['K', 'DST', 'DEF', 'D/ST']: baseline = 215
     elif pos == 'TE': baseline = 175
     else: baseline = 225
     abs_score = min(40, (pts / baseline) * 40)
 
-    # B2: Yearly Dominance (20% - vs Position Top Scorer that year)
     yearly_pos_data = full_data[(full_data['Year'] == row['Year']) & (full_data['Position'] == pos)]
     yearly_max = yearly_pos_data['Points'].max() if not yearly_pos_data.empty else 0
     rel_score = (pts / yearly_max) * 20 if yearly_max > 0 else (pts / baseline) * 20
     
-    # B3: Maintenance vs ROI (25%)
-    # QBs are anchors in Rds 1-6. Others in Rds 1-2.
     is_high_expectation = (pos == 'QB' and rd <= 6) or (pos in ['RB', 'WR', 'TE'] and rd <= 2)
     
     if is_high_expectation:
@@ -101,7 +94,6 @@ def refine_score(row, full_data):
         multiplier = 1.3 if pos in ['RB', 'WR', 'TE'] else 1.0
         val_score = min(25, (max(0, voadp) / 65) * 25 * multiplier)
 
-    # B4: Clutch (15%)
     clutch_score = min(15, (pip_val / 0.22) * 15)
     
     total = abs_score + rel_score + val_score + clutch_score
@@ -117,6 +109,12 @@ def refine_score(row, full_data):
 
 try:
     draft_df, history_df = load_data()
+    
+    # NEW: Calculate Scores for the ENTIRE league upfront
+    draft_df['Success Score'] = draft_df.apply(lambda r: refine_score(r, draft_df), axis=1)
+    draft_df['Grade'] = draft_df['Success Score'].apply(get_grade)
+    draft_df['Display_PPG'] = draft_df['PPG'].clip(lower=0) + 2
+    
     all_owners = sorted(draft_df['Owner'].unique())
     
     st.sidebar.markdown("# 🏈 KFL")
@@ -124,28 +122,42 @@ try:
     st.sidebar.divider()
     selected_owner = st.sidebar.selectbox("Select Manager", all_owners)
     
+    # Filter for the selected owner for specific tabs
     owner_draft = draft_df[draft_df['Owner'] == selected_owner].copy()
-    owner_draft['Success Score'] = owner_draft.apply(lambda r: refine_score(r, draft_df), axis=1)
-    owner_draft['Grade'] = owner_draft['Success Score'].apply(get_grade)
-    
     owner_history = history_df[history_df['Owner'] == selected_owner]
 
     if main_page == "Draft Room":
         sub_page = st.sidebar.radio("SUB-MENU", ["Dashboard", "Archetype", "Performance", "Scoring"])
         
-        # --- DASHBOARD ---
+        # --- SUB-TAB 1: DASHBOARD ---
         if sub_page == "Dashboard":
             st.title(f"📈 {selected_owner}: Dashboard")
             c1, c2, c3 = st.columns(3)
             c1.metric("Total Picks", len(owner_draft))
             c2.metric("Draft Years", owner_draft['Year'].nunique())
             c3.metric("Avg Success Score", f"{owner_draft['Success Score'].mean():.1f}")
+            
+            # Existing Draft Slot Chart
             slots = draft_df[draft_df['Round'] == 1].groupby(['Owner', 'Year'])['Pick'].first().reset_index()
             fig_slots = px.bar(slots[slots['Owner'] == selected_owner], x='Year', y='Pick', text='Pick', title="Round 1 Draft Slot History")
             fig_slots.update_yaxes(autorange="reversed", dtick=1)
             st.plotly_chart(fig_slots, use_container_width=True)
+            
+            st.divider()
+            
+            # NEW: LEAGUE-WIDE STRESS TEST CHART
+            st.header("🌐 League-Wide Performance Audit")
+            st.write("Every player drafted in KFL history, graded by the current formula logic.")
+            
+            fig_league = px.scatter(draft_df, x="Round", y="Success Score", color="Grade", 
+                                   size="Display_PPG",
+                                   hover_data=["Player Name", "Year", "Owner", "Position"], 
+                                   title="Full League History: Distribution of Success Scores",
+                                   color_discrete_map={"S":"#FFD700", "A+":"#00FF00", "A":"#32CD32", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000", "F-":"#8B0000"},
+                                   template="plotly_dark")
+            st.plotly_chart(fig_league, use_container_width=True)
 
-        # --- ARCHETYPE ---
+        # --- SUB-TAB 2: ARCHETYPE ---
         elif sub_page == "Archetype":
             st.title(f"🧬 {selected_owner}: Draft Archetype")
             st.subheader("Manager Tendencies")
@@ -197,7 +209,7 @@ try:
                 race_counts.columns = ['Race', 'count']
                 st.plotly_chart(px.pie(race_counts, values='count', names='Race', hole=0.5), use_container_width=True)
 
-        # --- PERFORMANCE ---
+        # --- SUB-TAB 3: PERFORMANCE ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
             hof, hos = st.columns(2)
@@ -206,10 +218,10 @@ try:
                 top_5 = owner_draft.sort_values('Success Score', ascending=False).head(5)
                 for i, (_, p) in enumerate(top_5.iterrows(), 1):
                     won = str(p.get('Win Championship?')).strip().upper() in ['YES', '1', '1.0', 'Y']
-                    champ_bracket = "| 🏆 |" if won else "|"
+                    champ_icon = "| 🏆 |" if won else "|"
                     c_pts = p.get('Championship points', 0)
                     c_text = f" | {c_pts:.1f} Final Pts" if won and c_pts > 0 else ""
-                    st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) {champ_bracket}</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG{c_text}</div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) {champ_icon}</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG{c_text}</div>""", unsafe_allow_html=True)
             with hos:
                 st.error("### 🗑️ Draft Hall of Shame")
                 busts = owner_draft[owner_draft['GP'] > 0].sort_values('Success Score', ascending=True).head(5)
@@ -218,7 +230,6 @@ try:
                     st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) |</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | Missed {missed:.0f} Games</div>""", unsafe_allow_html=True)
             
             st.divider()
-            owner_draft['Display_PPG'] = owner_draft['PPG'].clip(lower=0) + 2
             fig_perf = px.scatter(owner_draft, x="Round", y="Success Score", color="Grade", 
                                    size="Display_PPG",
                                    hover_data=["Player Name", "Year", "Points"], 
@@ -227,22 +238,16 @@ try:
             st.subheader("📋 Performance Review Log")
             st.dataframe(owner_draft[['Year', 'Round', 'Player Name', 'Position', 'Points', 'PPG', 'GP', 'Success Score', 'Grade']].sort_values('Success Score', ascending=False), use_container_width=True, hide_index=True)
 
-        # --- SCORING ---
+        # --- SUB-TAB 4: SCORING ---
         elif sub_page == "Scoring":
             st.title(f"🎯 {selected_owner}: Scoring Audit")
             col_pts, col_eff = st.columns(2)
             with col_pts:
                 st.subheader("1. Point Source Breakdown")
                 st.plotly_chart(px.pie(owner_draft.groupby('Position')['Points'].sum().reset_index(), values='Points', names='Position', hole=0.4), use_container_width=True)
-                with st.popover("📊 View Position Leaders"):
-                    sel_p = st.selectbox("Position:", sorted(owner_draft['Position'].unique()))
-                    st.dataframe(owner_draft[owner_draft['Position'] == sel_p].sort_values('Points', ascending=False)[['Year', 'Player Name', 'Points', 'Grade']], hide_index=True)
             with col_eff:
                 st.subheader("2. Draft Capital Efficiency")
                 st.plotly_chart(px.bar(owner_draft.groupby('Round')['Points'].mean().reset_index(), x='Round', y='Points', text_auto='.0f', color='Points'), use_container_width=True)
-                with st.popover("💎 View Round Value"):
-                    sel_r = st.selectbox("Round:", sorted(owner_draft['Round'].unique()))
-                    st.dataframe(owner_draft[owner_draft['Round'] == sel_r].sort_values('Points', ascending=False)[['Year', 'Player Name', 'Points', 'Success Score']], hide_index=True)
             st.divider()
             st.subheader("3. Total Drafted Points Trend")
             trend_df = owner_draft.groupby('Year')['Points'].sum().reset_index()
