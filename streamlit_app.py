@@ -9,27 +9,25 @@ st.set_page_config(page_title="KFL Archive", layout="wide")
 # 2. DATA LOADING & CLEANING
 @st.cache_data
 def load_data():
-    # Use the specific file name provided in the sidebar/upload
-    draft_df = pd.read_csv('Draft Data GPT (1).xlsx')
-    # history_df = pd.read_csv('OFFICIAL Every Game GPT.csv') # Assuming same naming convention
-    # For stability in this snippet, I will focus on the draft_df logic provided.
-    # Note: If the user has history_df, ensure the file is present.
+    # Reverting to .xlsx as per repository setup
+    draft_df = pd.read_excel('Draft Data GPT (1).xlsx')
     try:
         history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
     except:
-        history_df = pd.DataFrame(columns=['Owner', 'Result']) # Fallback
+        history_df = pd.DataFrame(columns=['Owner', 'Result'])
 
     draft_df.columns = draft_df.columns.str.strip()
     
-    # Clean % columns and numeric columns
-    def clean_pct_column(val):
+    # Cleaning Percentage and Numeric Columns
+    def clean_pct_val(val):
         if pd.isna(val) or val == '#DIV/0!': return 0.0
-        val = str(val).replace('%', '').strip()
-        try: return float(val) / 100.0
+        if isinstance(val, str):
+            val = val.replace('%', '').strip()
+        try: return float(val) / 100.0 if float(val) > 1 else float(val)
         except: return 0.0
 
     if '% of PIP' in draft_df.columns:
-        draft_df['% of PIP'] = draft_df['% of PIP'].apply(clean_pct_column)
+        draft_df['% of PIP'] = draft_df['% of PIP'].apply(clean_pct_val)
 
     # Demographic Cleaning
     if 'Birthday' in draft_df.columns:
@@ -220,16 +218,12 @@ try:
                     st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) |</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | Missed {missed:.0f} Games</div>""", unsafe_allow_html=True)
             
             st.divider()
-            
-            # STABILITY FIX: Ensure size column is non-negative and has a minimum visible size
             owner_draft['Display_PPG'] = owner_draft['PPG'].clip(lower=0) + 2
-            
             fig_perf = px.scatter(owner_draft, x="Round", y="Success Score", color="Grade", 
-                                   size="Display_PPG", # Use the cleaned column
+                                   size="Display_PPG",
                                    hover_data=["Player Name", "Year", "Points"], 
                                    color_discrete_map={"S":"#FFD700", "A+":"#00FF00", "A":"#32CD32", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000", "F-":"#8B0000"})
             st.plotly_chart(fig_perf, use_container_width=True)
-            
             st.subheader("📋 Performance Review Log")
             st.dataframe(owner_draft[['Year', 'Round', 'Player Name', 'Position', 'Points', 'PPG', 'GP', 'Success Score', 'Grade']].sort_values('Success Score', ascending=False), use_container_width=True, hide_index=True)
 
@@ -240,9 +234,15 @@ try:
             with col_pts:
                 st.subheader("1. Point Source Breakdown")
                 st.plotly_chart(px.pie(owner_draft.groupby('Position')['Points'].sum().reset_index(), values='Points', names='Position', hole=0.4), use_container_width=True)
+                with st.popover("📊 View Position Leaders"):
+                    sel_p = st.selectbox("Position:", sorted(owner_draft['Position'].unique()))
+                    st.dataframe(owner_draft[owner_draft['Position'] == sel_p].sort_values('Points', ascending=False)[['Year', 'Player Name', 'Points', 'Grade']], hide_index=True)
             with col_eff:
                 st.subheader("2. Draft Capital Efficiency")
                 st.plotly_chart(px.bar(owner_draft.groupby('Round')['Points'].mean().reset_index(), x='Round', y='Points', text_auto='.0f', color='Points'), use_container_width=True)
+                with st.popover("💎 View Round Value"):
+                    sel_r = st.selectbox("Round:", sorted(owner_draft['Round'].unique()))
+                    st.dataframe(owner_draft[owner_draft['Round'] == sel_r].sort_values('Points', ascending=False)[['Year', 'Player Name', 'Points', 'Success Score']], hide_index=True)
             st.divider()
             st.subheader("3. Total Drafted Points Trend")
             trend_df = owner_draft.groupby('Year')['Points'].sum().reset_index()
@@ -257,8 +257,8 @@ try:
     elif main_page == "Owner Statistics":
         st.title(f"📊 {selected_owner}: Career Stats")
         if not owner_history.empty:
-            wins = len(owner_history[owner_history['Result'].str.strip().str.upper() == 'WIN'])
-            losses = len(owner_history[owner_history['Result'].str.strip().str.upper() == 'LOSS'])
+            wins = len(owner_history[owner_history['Result'].astype(str).str.strip().str.upper() == 'WIN'])
+            losses = len(owner_history[owner_history['Result'].astype(str).str.strip().str.upper() == 'LOSS'])
             st.metric("All-Time Record", f"{wins}-{losses}")
         else:
             st.write("No career history data found.")
