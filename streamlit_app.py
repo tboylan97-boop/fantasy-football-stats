@@ -9,10 +9,29 @@ st.set_page_config(page_title="KFL Archive", layout="wide")
 # 2. DATA LOADING & CLEANING
 @st.cache_data
 def load_data():
-    draft_df = pd.read_excel('Draft Data GPT (1).xlsx')
-    history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
+    # Use the specific file name provided in the sidebar/upload
+    draft_df = pd.read_csv('Draft Data GPT (1).csv')
+    # history_df = pd.read_csv('OFFICIAL Every Game GPT.csv') # Assuming same naming convention
+    # For stability in this snippet, I will focus on the draft_df logic provided.
+    # Note: If the user has history_df, ensure the file is present.
+    try:
+        history_df = pd.read_excel('OFFICIAL Every Game GPT.xlsx', sheet_name='Every Game')
+    except:
+        history_df = pd.DataFrame(columns=['Owner', 'Result']) # Fallback
+
     draft_df.columns = draft_df.columns.str.strip()
     
+    # Clean % columns and numeric columns
+    def clean_pct_column(val):
+        if pd.isna(val) or val == '#DIV/0!': return 0.0
+        val = str(val).replace('%', '').strip()
+        try: return float(val) / 100.0
+        except: return 0.0
+
+    if '% of PIP' in draft_df.columns:
+        draft_df['% of PIP'] = draft_df['% of PIP'].apply(clean_pct_column)
+
+    # Demographic Cleaning
     if 'Birthday' in draft_df.columns:
         draft_df['Birthday'] = pd.to_datetime(draft_df['Birthday'], errors='coerce')
         draft_df['Birth Month'] = draft_df['Birthday'].dt.month_name()
@@ -25,7 +44,7 @@ def load_data():
         if col in draft_df.columns:
             draft_df[col] = draft_df[col].astype(str).str.strip().str.upper()
 
-    for col in ['PPG', 'GP', 'VOADP', 'Points', '% of PIP', 'Championship points']:
+    for col in ['PPG', 'GP', 'VOADP', 'Points', 'Championship points']:
         if col in draft_df.columns:
             draft_df[col] = pd.to_numeric(draft_df[col], errors='coerce').fillna(0)
     
@@ -51,16 +70,13 @@ def get_clean_names(name):
         return " ".join(parts[:-2]), " ".join(parts[:-2:])
     return " ".join(parts[:-1]), parts[-1]
 
-# 4. THE POSITIONAL EXPECTATION FORMULA (v3.1)
+# 4. PERFORMANCE REFINEMENT FORMULA (v3.1)
 def refine_score(row, full_data):
     pos = row.get('Position', 'RB')
     pts = row.get('Points', 0)
     ppg = row.get('PPG', 0)
     voadp = row.get('VOADP', 0)
-    pip = str(row.get('% of PIP', '0%')).replace('%','')
-    try: pip_val = float(pip) / 100
-    except: pip_val = 0.0
-    
+    pip_val = row.get('% of PIP', 0)
     rd = row.get('Round', 1)
     won_champ = str(row.get('Win Championship?', '')).strip().upper() in ['YES', '1', '1.0', 'Y']
 
@@ -76,16 +92,14 @@ def refine_score(row, full_data):
     yearly_max = yearly_pos_data['Points'].max() if not yearly_pos_data.empty else 0
     rel_score = (pts / yearly_max) * 20 if yearly_max > 0 else (pts / baseline) * 20
     
-    # B3: Maintenance vs ROI (25%) - THE POSITIONAL SHIFT
+    # B3: Maintenance vs ROI (25%)
     # QBs are anchors in Rds 1-6. Others in Rds 1-2.
     is_high_expectation = (pos == 'QB' and rd <= 6) or (pos in ['RB', 'WR', 'TE'] and rd <= 2)
     
     if is_high_expectation:
-        # Maintenance logic (PPG focused)
         target_ppg = 22 if pos == 'QB' else 19
         val_score = min(25, (ppg / target_ppg) * 25)
     else:
-        # ROI logic (VOADP/Steal focused)
         multiplier = 1.3 if pos in ['RB', 'WR', 'TE'] else 1.0
         val_score = min(25, (max(0, voadp) / 65) * 25 * multiplier)
 
@@ -93,9 +107,8 @@ def refine_score(row, full_data):
     clutch_score = min(15, (pip_val / 0.22) * 15)
     
     total = abs_score + rel_score + val_score + clutch_score
-    if pts > 400: total += 10 # Legend bonus
+    if pts > 400: total += 10 
     
-    # K/DST cap to keep hall of fame for skill players
     if pos in ['K', 'DST', 'DEF', 'D/ST'] and not won_champ: total = min(79, total)
 
     if not won_champ: total = min(99.9, total)
@@ -122,6 +135,7 @@ try:
     if main_page == "Draft Room":
         sub_page = st.sidebar.radio("SUB-MENU", ["Dashboard", "Archetype", "Performance", "Scoring"])
         
+        # --- DASHBOARD ---
         if sub_page == "Dashboard":
             st.title(f"📈 {selected_owner}: Dashboard")
             c1, c2, c3 = st.columns(3)
@@ -133,6 +147,7 @@ try:
             fig_slots.update_yaxes(autorange="reversed", dtick=1)
             st.plotly_chart(fig_slots, use_container_width=True)
 
+        # --- ARCHETYPE ---
         elif sub_page == "Archetype":
             st.title(f"🧬 {selected_owner}: Draft Archetype")
             st.subheader("Manager Tendencies")
@@ -183,15 +198,8 @@ try:
                 race_counts = valid_players['Race'].value_counts().reset_index()
                 race_counts.columns = ['Race', 'count']
                 st.plotly_chart(px.pie(race_counts, values='count', names='Race', hole=0.5), use_container_width=True)
-            st.divider()
-            st.subheader("Position Strategy")
-            col_rep, col_p = st.columns(2)
-            with col_rep:
-                st.write("#### Frequent Faces")
-                st.dataframe(owner_draft['Player Name'].value_counts().reset_index().rename(columns={'index':'Player','Player Name':'Drafted'}), use_container_width=True, hide_index=True)
-            with col_p:
-                st.plotly_chart(px.pie(owner_draft['Position'].value_counts().reset_index(), values='Position', names='index', hole=0.4), use_container_width=True)
 
+        # --- PERFORMANCE ---
         elif sub_page == "Performance":
             st.title(f"🏆 {selected_owner}: Performance")
             hof, hos = st.columns(2)
@@ -200,10 +208,10 @@ try:
                 top_5 = owner_draft.sort_values('Success Score', ascending=False).head(5)
                 for i, (_, p) in enumerate(top_5.iterrows(), 1):
                     won = str(p.get('Win Championship?')).strip().upper() in ['YES', '1', '1.0', 'Y']
-                    champ_icon = "| 🏆 |" if won else "|"
+                    champ_bracket = "| 🏆 |" if won else "|"
                     c_pts = p.get('Championship points', 0)
                     c_text = f" | {c_pts:.1f} Final Pts" if won and c_pts > 0 else ""
-                    st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) {champ_icon}</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG{c_text}</div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) {champ_bracket}</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | {p['PPG']:.1f} PPG{c_text}</div>""", unsafe_allow_html=True)
             with hos:
                 st.error("### 🗑️ Draft Hall of Shame")
                 busts = owner_draft[owner_draft['GP'] > 0].sort_values('Success Score', ascending=True).head(5)
@@ -212,11 +220,20 @@ try:
                     st.markdown(f"""<div style="font-size:18px; line-height:1.8;"><b>#{i}: {p['Player Name']} ({p['Year']}) |</b> Grade: {p['Grade']} ({p['Success Score']}) | {p['Points']:.0f} Pts | Missed {missed:.0f} Games</div>""", unsafe_allow_html=True)
             
             st.divider()
-            fig_perf = px.scatter(owner_draft, x="Round", y="Success Score", color="Grade", size="PPG", hover_data=["Player Name", "Year", "Points"], color_discrete_map={"S":"#FFD700", "A+":"#00FF00", "A":"#32CD32", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000", "F-":"#8B0000"})
+            
+            # STABILITY FIX: Ensure size column is non-negative and has a minimum visible size
+            owner_draft['Display_PPG'] = owner_draft['PPG'].clip(lower=0) + 2
+            
+            fig_perf = px.scatter(owner_draft, x="Round", y="Success Score", color="Grade", 
+                                   size="Display_PPG", # Use the cleaned column
+                                   hover_data=["Player Name", "Year", "Points"], 
+                                   color_discrete_map={"S":"#FFD700", "A+":"#00FF00", "A":"#32CD32", "B":"#FFFF00", "C":"#FFA500", "D":"#FF4500", "F":"#FF0000", "F-":"#8B0000"})
             st.plotly_chart(fig_perf, use_container_width=True)
+            
             st.subheader("📋 Performance Review Log")
             st.dataframe(owner_draft[['Year', 'Round', 'Player Name', 'Position', 'Points', 'PPG', 'GP', 'Success Score', 'Grade']].sort_values('Success Score', ascending=False), use_container_width=True, hide_index=True)
 
+        # --- SCORING ---
         elif sub_page == "Scoring":
             st.title(f"🎯 {selected_owner}: Scoring Audit")
             col_pts, col_eff = st.columns(2)
@@ -239,9 +256,12 @@ try:
 
     elif main_page == "Owner Statistics":
         st.title(f"📊 {selected_owner}: Career Stats")
-        wins = len(owner_history[owner_history['Result'] == 'Win'])
-        losses = len(owner_history[owner_history['Result'] == 'Loss'])
-        st.metric("All-Time Record", f"{wins}-{losses}")
+        if not owner_history.empty:
+            wins = len(owner_history[owner_history['Result'].str.strip().str.upper() == 'WIN'])
+            losses = len(owner_history[owner_history['Result'].str.strip().str.upper() == 'LOSS'])
+            st.metric("All-Time Record", f"{wins}-{losses}")
+        else:
+            st.write("No career history data found.")
 
 except Exception as e:
     st.error(f"Sync failed: {e}")
