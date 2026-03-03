@@ -10,7 +10,7 @@ st.set_page_config(page_title="KFL Archive", layout="wide")
 @st.cache_data
 def load_data():
     # Use the specific file name provided in the sidebar/upload
-    draft_df = pd.read_csv('Draft Data GPT (1).csv')
+    draft_df = pd.read_csv('Draft Data GPT (1).xlsx')
     # history_df = pd.read_csv('OFFICIAL Every Game GPT.csv') # Assuming same naming convention
     # For stability in this snippet, I will focus on the draft_df logic provided.
     # Note: If the user has history_df, ensure the file is present.
